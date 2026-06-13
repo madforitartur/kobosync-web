@@ -1,0 +1,352 @@
+@import "tailwindcss";
+@import "@fontsource/libre-caslon-text/400.css";
+@import "@fontsource/libre-caslon-text/700.css";
+@import "@fontsource/manrope/400.css";
+@import "@fontsource/manrope/600.css";
+@import "@fontsource/manrope/700.css";
+@import "@fontsource-variable/inter";
+
+/* ============================================
+   DESIGN TOKENS — Tailwind v4 @theme
+   ============================================ */
+@theme {
+  /* Surfaces */
+  --color-surface-bright: #f9f9f9;
+  --color-surface-dim: #dadada;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-low: #f3f3f4;
+  --color-surface-container: #eeeeee;
+  --color-surface-container-high: #e8e8e8;
+  --color-surface-container-highest: #e2e2e2;
+  --color-surface: #f9f9f9;
+  --color-surface-variant: #e2e2e2;
+  --color-background: #f9f9f9;
+
+  /* On */
+  --color-on-surface: #1a1c1c;
+  --color-on-surface-variant: #45474c;
+  --color-on-background: #1a1c1c;
+
+  /* Primary */
+  --color-primary: #030813;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #1a202c;
+  --color-on-primary-container: #828796;
+  --color-primary-fixed: #dde2f3;
+  --color-primary-fixed-dim: #c1c6d7;
+  --color-on-primary-fixed: #161c27;
+  --color-on-primary-fixed-variant: #414754;
+  --color-inverse-primary: #c1c6d7;
+
+  /* Secondary */
+  --color-secondary: #505f76;
+  --color-on-secondary: #ffffff;
+  --color-secondary-container: #d0e1fb;
+  --color-on-secondary-container: #54647a;
+  --color-secondary-fixed: #d3e4fe;
+  --color-secondary-fixed-dim: #b7c8e1;
+  --color-on-secondary-fixed: #0b1c30;
+  --color-on-secondary-fixed-variant: #38485d;
+
+  /* Tertiary */
+  --color-tertiary: #05090c;
+  --color-on-tertiary: #ffffff;
+  --color-tertiary-container: #1c2124;
+  --color-on-tertiary-container: #84888c;
+  --color-tertiary-fixed: #dfe3e7;
+  --color-tertiary-fixed-dim: #c3c7cb;
+  --color-on-tertiary-fixed: #171c1f;
+  --color-on-tertiary-fixed-variant: #43474b;
+
+  /* Neutrals */
+  --color-outline: #76777c;
+  --color-outline-variant: #c6c6cc;
+  --color-inverse-surface: #2f3131;
+  --color-inverse-on-surface: #f0f1f1;
+  --color-surface-tint: #585e6c;
+
+  /* Error */
+  --color-error: #ba1a1a;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-error-container: #93000a;
+
+  /* Typography */
+  --font-display-lg: "Libre Caslon Text", serif;
+  --font-headline-lg: "Libre Caslon Text", serif;
+  --font-headline-md: "Libre Caslon Text", serif;
+  --font-body-lg: "Inter Variable", sans-serif;
+  --font-body-md: "Inter Variable", sans-serif;
+  --font-label-sm: "Manrope", sans-serif;
+  --font-label-md: "Manrope", sans-serif;
+
+  /* Border radius */
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.5rem;
+}
+
+/* ============================================
+   DARK MODE OVERRIDES
+   ============================================ */
+@variant dark (&:where(.dark, .dark *));
+
+.dark {
+  --color-surface: #111315;
+  --color-surface-dim: #090b0c;
+  --color-surface-bright: #1c2023;
+  --color-surface-container-lowest: #171a1d;
+  --color-surface-container-low: #1d2125;
+  --color-surface-container: #242a2f;
+  --color-surface-container-high: #2c3238;
+  --color-surface-container-highest: #363d44;
+  --color-on-surface: #f2f4f5;
+  --color-on-surface-variant: #c2c7cc;
+  --color-primary: #edf1ff;
+  --color-on-primary: #111315;
+  --color-primary-container: #cbd6f6;
+  --color-on-primary-container: #2a3243;
+  --color-secondary: #95b8d8;
+  --color-on-secondary: #101820;
+  --color-background: #0d0f10;
+  --color-on-background: #f2f4f5;
+  --color-outline: #9aa1a8;
+  --color-outline-variant: #3d454d;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-on-background);
+    font-family: "Inter Variable", system-ui, sans-serif;
+  }
+}
+
+/* ============================================
+   TYPOGRAPHY UTILITIES
+   ============================================ */
+@utility display-lg {
+  font-family: "Libre Caslon Text", serif;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+@utility headline-lg {
+  font-family: "Libre Caslon Text", serif;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+@utility headline-md {
+  font-family: "Libre Caslon Text", serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+@utility headline-lg-mobile {
+  font-family: "Libre Caslon Text", serif;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+@utility body-lg {
+  font-family: "Inter Variable", sans-serif;
+  font-size: 18px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+@utility body-md {
+  font-family: "Inter Variable", sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+@utility label-md {
+  font-family: "Manrope", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.05em;
+}
+
+@utility label-sm {
+  font-family: "Manrope", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+@utility serif {
+  font-family: "Libre Caslon Text", serif;
+}
+
+@utility label-font {
+  font-family: "Manrope", sans-serif;
+}
+
+/* ============================================
+   COMPONENT UTILITIES (sem pseudo-classes)
+   ============================================ */
+@utility aspect-epub {
+  aspect-ratio: 2 / 3;
+}
+
+@utility book-shadow {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.3s ease;
+}
+
+@utility book-card-hover {
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 0.3s ease;
+}
+
+@utility custom-scrollbar {
+  scrollbar-width: thin;
+}
+
+/* ============================================
+   LAYER COMPONENTS — regras com pseudo-classes
+   ============================================ */
+@layer components {
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--color-outline-variant);
+    border-radius: 10px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--color-outline);
+  }
+
+  .book-shadow:hover {
+    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
+  }
+}
+
+/* ============================================
+   LEITOR DE LIVROS — formatação de HTML EPUB
+   ============================================ */
+.prose-book {
+  font-family: "Libre Caslon Text", Georgia, serif;
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  -ms-hyphens: auto;
+}
+
+.prose-book p {
+  margin: 0 0 0.8em 0;
+  text-indent: 1.5em;
+  orphans: 3;
+  widows: 3;
+}
+
+.prose-book p:first-child,
+.prose-book h1 + p,
+.prose-book h2 + p,
+.prose-book h3 + p,
+.prose-book h4 + p {
+  text-indent: 0;
+}
+
+.prose-book h1,
+.prose-book h2,
+.prose-book h3,
+.prose-book h4,
+.prose-book h5,
+.prose-book h6 {
+  font-family: "Libre Caslon Text", Georgia, serif;
+  font-weight: 700;
+  margin: 1.2em 0 0.6em 0;
+  text-indent: 0;
+}
+
+.prose-book h1 {
+  font-size: 1.6em;
+  line-height: 1.2;
+}
+
+.prose-book h2 {
+  font-size: 1.35em;
+  line-height: 1.25;
+}
+
+.prose-book h3 {
+  font-size: 1.15em;
+  line-height: 1.3;
+}
+
+.prose-book h4 {
+  font-size: 1.05em;
+}
+
+.prose-book em,
+.prose-book i {
+  font-style: italic;
+}
+
+.prose-book strong,
+.prose-book b {
+  font-weight: 700;
+}
+
+.prose-book a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.prose-book img {
+  max-width: 100%;
+  height: auto;
+  margin: 1em auto;
+  display: block;
+}
+
+.prose-book blockquote {
+  border-left: 2px solid currentColor;
+  padding-left: 1em;
+  margin: 1.2em 0;
+  font-style: italic;
+  opacity: 0.85;
+  text-indent: 0;
+}
+
+.prose-book ul,
+.prose-book ol {
+  padding-left: 1.5em;
+  margin: 1em 0;
+  text-indent: 0;
+}
+
+.prose-book li {
+  margin: 0.3em 0;
+}
+
+.prose-book hr {
+  border: none;
+  border-top: 1px solid currentColor;
+  margin: 2em auto;
+  width: 30%;
+  opacity: 0.3;
+}

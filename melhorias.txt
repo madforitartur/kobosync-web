@@ -1,0 +1,5 @@
+💡 Próximas Melhorias (se quiseres)
+Indicador de progresso (% do livro) numa barra fina
+Mini-mapa de navegação (sidebar com capítulos)
+Marcadores (bookmarks em páginas específicas)
+Highlight de seleção (selecionar texto e guardar)
