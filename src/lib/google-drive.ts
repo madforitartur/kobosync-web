@@ -1,58 +1,115 @@
-/**
- * Helper para fazer download de ficheiros do Google Drive.
- *
- * Para ficheiros públicos partilhados como "qualquer pessoa com o link",
- * o download direto funciona. Para ficheiros privados, o Google devolve
- * uma página HTML de confirmação/login.
- */
-export async function downloadFromDrive(fileId: string): Promise<ArrayBuffer> {
-  // URL para download direto
-  const baseUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+const DRIVE_API = "https://www.googleapis.com/drive/v3";
+const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
-  // 1ª tentativa: URL simples
-  let response = await fetch(baseUrl, {
-    redirect: "follow",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; KoboSync/1.0)",
-    },
+interface ServiceAccountToken {
+  access_token: string;
+  expires_in: number;
+}
+
+interface DriveFile {
+  id: string;
+  name: string;
+  size?: string;
+  modifiedTime?: string;
+}
+
+interface ListDriveEpubsParams {
+  clientEmail: string;
+  privateKey: string;
+  sharedDriveId?: string;
+  folderId?: string;
+}
+
+// Gera um JWT e obtém um access token para a service account
+async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/drive.readonly",
+    aud: TOKEN_URL,
+    iat: now,
+    exp: now + 3600,
+  }));
+
+  const unsigned = `${header}.${payload}`;
+
+  // Importa a chave privada
+  const pemContents = privateKey
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s/g, "");
+
+  const keyBuffer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    keyBuffer,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+
+  const signature = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(unsigned),
+  );
+
+  const jwt = `${unsigned}.${btoa(String.fromCharCode(...new Uint8Array(signature)))}`;
+
+  const tokenRes = await fetch(TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
   });
 
-  if (!response.ok) {
-    throw new Error(`Drive returned ${response.status} ${response.statusText}`);
+  const tokenData: ServiceAccountToken = await tokenRes.json();
+  return tokenData.access_token;
+}
+
+// Lista todos os EPUBs numa pasta do Google Drive
+export async function listDriveEpubs(params: ListDriveEpubsParams): Promise<{ files: DriveFile[]; token: string }> {
+  const { clientEmail, privateKey, sharedDriveId, folderId } = params;
+  const token = await getAccessToken(clientEmail, privateKey);
+
+  const files: DriveFile[] = [];
+  let pageToken: string | undefined;
+
+  do {
+    const query = new URLSearchParams({
+      q: `mimeType='application/epub+zip'${folderId ? ` and '${folderId}' in parents` : ""} and trashed=false`,
+      fields: "nextPageToken,files(id,name,size,modifiedTime)",
+      pageSize: "1000",
+      ...(sharedDriveId && {
+        driveId: sharedDriveId,
+        includeItemsFromAllDrives: "true",
+        supportsAllDrives: "true",
+        corpora: "drive",
+      }),
+      ...(pageToken && { pageToken }),
+    });
+
+    const res = await fetch(`${DRIVE_API}/files?${query}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    const data = await res.json();
+    files.push(...(data.files ?? []));
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return { files, token };
+}
+
+// Faz download de um ficheiro autenticado via service account
+export async function downloadFromDrive(fileId: string, token: string): Promise<ArrayBuffer> {
+  const res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Drive download failed: ${res.status} ${res.statusText}`);
   }
 
-  let contentType = response.headers.get("content-type") ?? "";
-  let arrayBuffer = await response.arrayBuffer();
-
-  // Se o conteúdo é HTML, pode ser:
-  // 1. Página de confirmação (ficheiros grandes >100MB)
-  // 2. Página de login (ficheiros privados)
-  // 3. Página de "vírus scan warning"
-  if (contentType.includes("text/html")) {
-    const html = new TextDecoder("utf-8", { fatal: false }).decode(
-      new Uint8Array(arrayBuffer),
-    );
-
-    // Caso 1: Ficheiro grande, precisa confirmação
-    const confirmMatch = html.match(/confirm=([^&"]+)/);
-    if (confirmMatch) {
-      const confirmUrl = `${baseUrl}&confirm=${confirmMatch[1]}`;
-      response = await fetch(confirmUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; KoboSync/1.0)" },
-      });
-      if (response.ok) {
-        contentType = response.headers.get("content-type") ?? "";
-        arrayBuffer = await response.arrayBuffer();
-      }
-    }
-
-    // Caso 2/3: Ainda é HTML → ficheiro privado
-    if (contentType.includes("text/html") || arrayBuffer.byteLength < 1000) {
-      throw new Error(
-        "Downloaded HTML instead of EPUB. The file is likely private or requires authentication.",
-      );
-    }
-  }
-
-  return arrayBuffer;
+  return res.arrayBuffer();
 }
