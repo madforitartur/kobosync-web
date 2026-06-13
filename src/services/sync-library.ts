@@ -1,5 +1,5 @@
 import { getServerConfig } from "@/lib/env";
-import { downloadDriveFile, listDriveEpubs } from "@/lib/google-drive";
+import { downloadFromDrive, listDriveEpubs } from "@/lib/google-drive";
 import { parseEpub } from "@/lib/epub";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { Book } from "@/types/library";
@@ -102,7 +102,7 @@ export async function syncLibrary() {
         continue;
       }
 
-      const epubBytes = await downloadDriveFile(file.id, token);
+      const epubBytes = await downloadFromDrive(file.id, token);
       const parsed = await parseEpub(epubBytes, stripExtension(file.name));
 
       const epubPath = storagePath(file.id, file.name);
