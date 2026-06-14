@@ -39,7 +39,7 @@ export async function GET(
       }
       arrayBuffer = await response.arrayBuffer();
     } else if (book.drive_file_id) {
-		arrayBuffer = await downloadFromDriveWithConfig(book.drive_file_id);
+      arrayBuffer = await downloadFromDriveWithConfig(book.drive_file_id);
     } else {
       return NextResponse.json({ error: "No source" }, { status: 404 });
     }
@@ -67,7 +67,6 @@ export async function GET(
       if (match) opfPath = match[1];
     }
     if (!opfPath) {
-      // Fallback: procurar .opf
       for (const name of Object.keys(zip.files)) {
         if (name.endsWith(".opf")) { opfPath = name; break; }
       }
@@ -85,13 +84,9 @@ export async function GET(
       ? opfPath.substring(0, opfPath.lastIndexOf("/") + 1)
       : "";
 
-    // Parse manifest
     const manifest = parseManifest(opfContent);
-
-    // Parse spine (estratégia 1)
     let spine = parseSpine(opfContent, manifest);
 
-    // Se não encontrou, tenta NCX (estratégia 2)
     if (spine.length === 0) {
       const tocNcx = findNcxFile(zip, opfContent);
       if (tocNcx) {
@@ -99,7 +94,6 @@ export async function GET(
       }
     }
 
-    // Se ainda nada, fallback total (estratégia 3)
     if (spine.length === 0) {
       spine = Object.keys(zip.files)
         .filter((name) => /\.(x?html?)$/i.test(name) && !name.includes("META-INF"))
@@ -115,7 +109,6 @@ export async function GET(
       );
     }
 
-    // Carregar capítulos
     const chapters: Chapter[] = [];
     for (let i = 0; i < spine.length; i += 1) {
       const href = spine[i];
@@ -143,11 +136,11 @@ export async function GET(
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? err.message : "Unknown" },
+      { error: error instanceof Error ? error.message : "Unknown" },
       { status: 500 },
     );
   }
-{ error: error instanceof Error ? error.message : "Unknown" },
+}
 
 // ================== HELPERS ==================
 
@@ -171,13 +164,10 @@ function parseSpine(
   manifest: Map<string, string>,
 ): string[] {
   const result: string[] = [];
-  // Tenta encontrar o bloco <spine>...</spine> (pode ter namespace)
   const spineMatch = opfContent.match(/<spine\b[^>]*>([\s\S]*?)<\/spine>/i);
   if (!spineMatch) {
-    // Tenta self-closing <spine ... />
     const selfCloseMatch = opfContent.match(/<spine\b([^>]*)\/>/i);
     if (!selfCloseMatch) return result;
-    // self-closing não tem itemref, retorna vazio
     return result;
   }
 
@@ -203,14 +193,12 @@ function parseSpine(
 }
 
 function findNcxFile(zip: JSZip, opfContent: string): string | null {
-  // Tentar encontrar via manifest
   const ncxItemMatch = opfContent.match(
     /<item\b[^>]*media-type="application\/x-dtbncx\+xml"[^>]*href="([^"]+)"/i,
   );
   if (ncxItemMatch) {
     return ncxItemMatch[1];
   }
-  // Fallback: procurar ficheiro .ncx
   for (const name of Object.keys(zip.files)) {
     if (name.endsWith(".ncx")) return name;
   }
@@ -221,9 +209,6 @@ function parseNcx(
   ncxPath: string,
   _manifest: Map<string, string>,
 ): string[] {
-  // Para NCX precisamos do ZIP — mas aqui só temos o path.
-  // Vamos devolver o path vazio e fazer fallback.
-  // (Implementação completa requer passar o zip para aqui)
   return [];
 }
 
