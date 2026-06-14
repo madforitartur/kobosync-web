@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { downloadFromDrive } from "@/lib/google-drive";
+import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 import JSZip from "jszip";
 
 export const runtime = "nodejs";
@@ -33,7 +33,7 @@ export async function GET(
       }
       arrayBuffer = await response.arrayBuffer();
     } else if (book.drive_file_id) {
-      arrayBuffer = await downloadFromDrive(book.drive_file_id);
+      arrayBuffer = await downloadFromDriveWithConfig(book.drive_file_id);
     } else {
       return NextResponse.json({ error: "No source" }, { status: 404 });
     }
