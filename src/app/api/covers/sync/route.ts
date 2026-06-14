@@ -1,228 +1,179 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { downloadFromDrive } from "@/lib/google-drive";
-import {
-  uploadCoverForBook,
-  extractCoverFromEpub,
-} from "@/lib/cover-extractor";
+import { downloadFromDriveWithConfig } from "@/lib/google-drive";
+import { uploadCoverForBook, extractCoverFromEpub } from "@/lib/cover-extractor";
 
 export const runtime = "nodejs";
-export const maxDuration = 600; // 10 minutos por batch
 
-/**
- * POST /api/covers/sync
- *
- * Body:
- *   {
- *     mode?: "all" | "missing" | "single",  // default: "missing"
- *     limit?: number,                         // default: 50
- *     bookIds?: string[],                     // para mode: "single"
- *     batchSize?: number,                     // livros por batch, default: 20
- *     concurrentBatches?: number,             // batches em paralelo, default: 3
- *   }
- *
- * Modos:
- *   - "missing": processa apenas livros sem cover_path (recomendado)
- *   - "all": reprocessa TODOS os livros (útil para reinicializar)
- *   - "single": processa apenas os bookIds fornecidos
- */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json().catch(() => ({}));
-    const mode: "all" | "missing" | "single" = body?.mode ?? "missing";
-    const limit: number = body?.limit ?? 50;
-    const bookIds: string[] | undefined = body?.bookIds;
-    const batchSize: number = body?.batchSize ?? 20;
-    const concurrentBatches: number = body?.concurrentBatches ?? 3;
+export async function POST(_request: NextRequest) {
+  const supabase = createServiceClient();
 
-    const supabase = createServiceClient();
+  const { data: state } = await supabase
+    .from("cover_sync_state")
+    .select("*")
+    .eq("id", 1)
+    .single();
 
-    // Buscar livros conforme o modo
-    let query = supabase
-      .from("books")
-      .select("id, drive_file_id, epub_url, cover_path, cover_url, modified_at");
-
-    if (mode === "single" && bookIds && bookIds.length > 0) {
-      query = query.in("id", bookIds);
-    } else if (mode === "missing") {
-      query = query.or("cover_path.is.null,cover_url.is.null");
-    }
-    // mode === "all" → sem filtro
-
-    query = query.limit(limit);
-    const { data: books, error } = await query;
-    if (error) throw error;
-
-    if (!books || books.length === 0) {
-      return NextResponse.json({
-        message: "No books to process",
-        mode,
-        processed: 0,
-      });
-    }
-
-    // Processar em batches paralelos
-    const results = {
-      mode,
-      total: books.length,
-      success: 0,
-      failed: 0,
-      skipped: 0,
-      errors: [] as Array<{ bookId: string; reason: string }>,
-    };
-
-    // Dividir em batches
-    const batches: typeof books[] = [];
-    for (let i = 0; i < books.length; i += batchSize) {
-      batches.push(books.slice(i, i + batchSize));
-    }
-
-    // Processar batches com concorrência limitada
-    for (let i = 0; i < batches.length; i += concurrentBatches) {
-      const currentBatches = batches.slice(i, i + concurrentBatches);
-      const batchResults = await Promise.allSettled(
-        currentBatches.map((batch) => processBatch(batch, supabase)),
-      );
-
-      for (const result of batchResults) {
-        if (result.status === "fulfilled") {
-          results.success += result.value.success;
-          results.failed += result.value.failed;
-          results.skipped += result.value.skipped;
-          results.errors.push(...result.value.errors);
-        } else {
-          results.failed += currentBatches[0]?.length ?? 0;
-          results.errors.push({
-            bookId: "unknown",
-            reason: result.reason?.message ?? "Batch failed",
-          });
-        }
-      }
-
-      // Log de progresso
-      console.log(
-        `[Cover Sync] Processed ${Math.min(i + concurrentBatches, batches.length)}/${batches.length} batches`,
-      );
-    }
-
+  if (state?.running) {
     return NextResponse.json({
-      message: "Cover sync complete",
-      results,
+      message: "Sync ja em curso",
+      state,
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Failed" },
-      { status: 500 },
-    );
   }
-}
 
-async function processBatch(
-  books: Array<{
-    id: string;
-    drive_file_id: string | null;
-    epub_url: string | null;
-    cover_path: string | null;
-    cover_url: string | null;
-  }>,
-  supabase: ReturnType<typeof createServiceClient>,
-) {
-  const result = {
+  const { count: totalBooks } = await supabase
+    .from("books")
+    .select("id", { count: "exact", head: true })
+    .or("cover_path.is.null,cover_url.is.null");
+
+  if (!totalBooks || totalBooks === 0) {
+    return NextResponse.json({ message: "Nenhum livro sem capa" });
+  }
+
+  await supabase.from("cover_sync_state").upsert({
+    id: 1,
+    running: true,
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    total_books: totalBooks,
+    processed: 0,
     success: 0,
     failed: 0,
-    skipped: 0,
-    errors: [] as Array<{ bookId: string; reason: string }>,
-  };
+    current_batch: 0,
+    total_batches: Math.ceil(totalBooks / 100),
+    errors: [],
+  });
 
-  for (const book of books) {
-    try {
-      // Pular se já tem capa (a menos que seja modo "all")
-      if (book.cover_path && book.cover_url) {
-        result.skipped++;
-        continue;
-      }
+  runBackgroundSync().catch((err) => {
+    console.error("[Cover Sync] Background error:", err);
+  });
 
-      if (!book.drive_file_id && !book.epub_url) {
-        result.skipped++;
-        result.errors.push({
-          bookId: book.id,
-          reason: "No drive_file_id or epub_url",
-        });
-        continue;
-      }
+  return NextResponse.json({ message: "Sync iniciado", totalBooks });
+}
 
-      let coverUrl: string | null = null;
-      let coverPath: string | null = null;
+async function runBackgroundSync() {
+  const supabase = createServiceClient();
+  const BATCH_SIZE = 50;
 
-      if (book.drive_file_id) {
-        const uploadResult = await uploadCoverForBook(
-          book.drive_file_id,
-          book.id,
-          downloadFromDrive,
-        );
-        if (uploadResult) {
-          coverUrl = uploadResult.url;
-          coverPath = uploadResult.path;
-        }
-      } else if (book.epub_url) {
-        const response = await fetch(book.epub_url);
-        if (response.ok) {
-          const buffer = await response.arrayBuffer();
-          const cover = await extractCoverFromEpub(buffer);
-          if (cover) {
-            const ext =
-              cover.mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-            coverPath = `covers/${book.id}.${ext}`;
+  let offset = 0;
+  let batchNum = 0;
 
-            const { error: uploadError } = await supabase.storage
-              .from("covers")
-              .upload(coverPath, cover.data, {
-                contentType: cover.mimeType,
-                upsert: true,
-              });
+  while (true) {
+    batchNum++;
 
-            if (!uploadError) {
-              const { data: signedData } = await supabase.storage
-                .from("covers")
-                .createSignedUrl(coverPath, 60 * 60 * 24 * 30);
-              if (signedData?.signedUrl) {
-                coverUrl = signedData.signedUrl;
-              }
-            }
-          }
-        }
-      }
+    const { data: books, error } = await supabase
+      .from("books")
+      .select("id, title, drive_file_id, epub_url")
+      .or("cover_path.is.null,cover_url.is.null")
+      .order("title")
+      .range(offset, offset + BATCH_SIZE - 1);
 
-      if (coverUrl && coverPath) {
-        const { error: updateError } = await supabase
-          .from("books")
-          .update({ cover_url: coverUrl, cover_path: coverPath })
-          .eq("id", book.id);
+    if (error || !books || books.length === 0) break;
 
-        if (updateError) {
-          result.failed++;
-          result.errors.push({
-            bookId: book.id,
-            reason: `Update failed: ${updateError.message}`,
-          });
-        } else {
-          result.success++;
-        }
+    const result = await processBatch(books);
+
+    await supabase.rpc("update_sync_progress", {
+      p_processed: books.length,
+      p_success: result.success,
+      p_failed: result.failed,
+      p_errors: result.errors,
+      p_batch: batchNum,
+    });
+
+    console.log(
+      `[Cover Sync] Batch ${batchNum} - Success: ${result.success}, Failed: ${result.failed}`,
+    );
+
+    offset += BATCH_SIZE;
+    if (books.length < BATCH_SIZE) break;
+  }
+
+  await supabase
+    .from("cover_sync_state")
+    .update({
+      running: false,
+      finished_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+}
+
+async function processBatch(books: any[]) {
+  const result = { success: 0, failed: 0, errors: [] as any[] };
+
+  for (let i = 0; i < books.length; i += 3) {
+    const chunk = books.slice(i, i + 3);
+    const results = await Promise.allSettled(chunk.map(processBook));
+
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === "fulfilled" && (results[j] as PromiseFulfilledResult<boolean>).value) {
+        result.success++;
       } else {
         result.failed++;
         result.errors.push({
-          bookId: book.id,
-          reason: "No cover found in EPUB",
+          bookId: chunk[j].id,
+          title: chunk[j].title,
+          reason:
+            results[j].status === "rejected"
+              ? String((results[j] as PromiseRejectedResult).reason)
+              : "No cover",
         });
       }
-    } catch (err) {
-      result.failed++;
-      result.errors.push({
-        bookId: book.id,
-        reason: err instanceof Error ? err.message : "Unknown",
-      });
     }
   }
 
   return result;
+}
+
+async function processBook(book: any): Promise<boolean> {
+  const supabase = createServiceClient();
+  try {
+    let coverUrl: string | null = null;
+    let coverPath: string | null = null;
+
+    if (book.drive_file_id) {
+      const r = await uploadCoverForBook(
+        book.drive_file_id,
+        book.id,
+        downloadFromDriveWithConfig,
+      );
+      if (r) {
+        coverUrl = r.url;
+        coverPath = r.path;
+      }
+    } else if (book.epub_url) {
+      const response = await fetch(book.epub_url);
+      if (response.ok) {
+        const buffer = await response.arrayBuffer();
+        const cover = await extractCoverFromEpub(buffer);
+        if (cover) {
+          const ext =
+            cover.mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
+          coverPath = `covers/${book.id}.${ext}`;
+          const { error: upErr } = await supabase.storage
+            .from("covers")
+            .upload(coverPath, cover.data, {
+              contentType: cover.mimeType,
+              upsert: true,
+            });
+          if (!upErr) {
+            const { data: sd } = await supabase.storage
+              .from("covers")
+              .createSignedUrl(coverPath, 60 * 60 * 24 * 30);
+            if (sd?.signedUrl) coverUrl = sd.signedUrl;
+          }
+        }
+      }
+    }
+
+    if (coverUrl && coverPath) {
+      await supabase
+        .from("books")
+        .update({ cover_url: coverUrl, cover_path: coverPath })
+        .eq("id", book.id);
+      return true;
+    }
+    return false;
+  } catch (err) {
+    return false;
+  }
 }
