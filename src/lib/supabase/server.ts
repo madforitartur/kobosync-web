@@ -1,3 +1,4 @@
+import type { Book } from @/types/library;
 import { createClient } from "@supabase/supabase-js";
 import { getServerConfig } from "@/lib/env";
 
