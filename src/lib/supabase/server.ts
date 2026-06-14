@@ -16,7 +16,7 @@ export type ListBooksOptions = {
 
 export async function listBooks(
   search?: string,
-  options: ListBooksOptions
+  options: ListBooksOptions = {}
 ): Promise<Book[]> {
   const supabase = createServiceClient();
   const term = search?.trim();
