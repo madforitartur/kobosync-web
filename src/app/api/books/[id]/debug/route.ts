@@ -63,7 +63,7 @@ export async function GET(
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? err.message : "Unknown" },
+      { error: error instanceof Error ? error.message : "Unknown" },
       { status: 500 },
     );
   }
