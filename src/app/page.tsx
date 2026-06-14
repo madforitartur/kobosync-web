@@ -206,16 +206,17 @@ export default function Home() {
   }
 
   function readBook(book: Book) {
+  if (!book.epub_url && !book.drive_file_id) {
+    setStatus({
+      type: "error",
+      message: "Este livro nao tem ficheiro EPUB disponivel.",
+    });
     setContextMenu(null);
-    if (!book.epub_url && !book.drive_file_id) {
-      setStatus({
-        type: "error",
-        message: "Este livro nao tem ficheiro EPUB disponivel.",
-      });
-      return;
-    }
-    window.open(`/read/${book.id}`, "_blank", "noopener,noreferrer");
+    return;
   }
+  window.open(`/read/${book.id}`, "_blank", "noopener,noreferrer");
+  setContextMenu(null);
+}
 
   function toggleBook(id: string) {
     setSelectedIds((current) => {
