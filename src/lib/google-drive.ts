@@ -23,24 +23,24 @@ interface ListDriveEpubsParams {
 // Gera um JWT e obtém um access token para a service account
 async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = btoa(JSON.stringify({
+  
+  const header = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
     iss: clientEmail,
     scope: "https://www.googleapis.com/auth/drive.readonly",
     aud: TOKEN_URL,
     iat: now,
     exp: now + 3600,
-  }));
+  })).toString("base64url");
 
   const unsigned = `${header}.${payload}`;
 
-  // Importa a chave privada
   const pemContents = privateKey
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\s/g, "");
 
-  const keyBuffer = Uint8Array.from(atob(pemContents), (c) => c.charCodeAt(0));
+  const keyBuffer = Buffer.from(pemContents, "base64");
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
     keyBuffer,
@@ -55,7 +55,8 @@ async function getAccessToken(clientEmail: string, privateKey: string): Promise<
     new TextEncoder().encode(unsigned),
   );
 
-  const jwt = `${unsigned}.${btoa(String.fromCharCode(...new Uint8Array(signature)))}`;
+  const sig = Buffer.from(signature).toString("base64url");
+  const jwt = `${unsigned}.${sig}`;
 
   const tokenRes = await fetch(TOKEN_URL, {
     method: "POST",
