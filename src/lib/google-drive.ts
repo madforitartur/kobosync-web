@@ -113,3 +113,10 @@ export async function downloadFromDrive(fileId: string, token: string): Promise<
 
   return res.arrayBuffer();
 }
+// Download autenticado sem precisar de passar o token externamente
+export async function downloadFromDriveWithConfig(fileId: string): Promise<ArrayBuffer> {
+  const { getServerConfig } = await import("@/lib/env");
+  const config = getServerConfig();
+  const token = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
+  return downloadFromDrive(fileId, token);
+}
