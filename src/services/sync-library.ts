@@ -131,7 +131,7 @@ export async function syncLibrary() {
         coverUrl = supabase.storage.from("covers").getPublicUrl(coverPath).data.publicUrl;
       }
 
-      const record: Omit<Book, "id"> = {
+      const record = {
         drive_file_id: file.id,
         title: parsed.metadata.title,
         author: parsed.metadata.author,
