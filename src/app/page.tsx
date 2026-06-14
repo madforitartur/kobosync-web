@@ -32,7 +32,6 @@ const formatBytes = (bytes: number | null) => {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 };
 
-// Placeholder para livros sem capa
 function BookCoverPlaceholder({ title }: { title: string }) {
   const initials = title
     .split(" ")
@@ -205,24 +204,24 @@ export default function Home() {
     setContextMenu(null);
   }
 
-function readBook(book: Book) {
-  if (!book.epub_url && !book.drive_file_id) {
-    setStatus({
-      type: "error",
-      message: "Este livro nao tem ficheiro EPUB disponivel.",
-    });
+  function readBook(book: Book) {
+    if (!book.epub_url && !book.drive_file_id) {
+      setStatus({
+        type: "error",
+        message: "Este livro nao tem ficheiro EPUB disponivel.",
+      });
+      setContextMenu(null);
+      return;
+    }
+    const link = document.createElement("a");
+    link.href = `/read/${book.id}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     setContextMenu(null);
-    return;
   }
-  const link = document.createElement("a");
-  link.href = `/read/${book.id}`;
-  link.target = "_blank";
-  link.rel = "noopener noreferrer";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setContextMenu(null);
-}
 
   function toggleBook(id: string) {
     setSelectedIds((current) => {
@@ -256,35 +255,6 @@ function readBook(book: Book) {
       });
     } finally {
       setSyncing(false);
-    }
-  }
-
-  async function syncCovers() {
-    setSyncingCovers(true);
-    setStatus({ type: "info", message: "A extrair capas dos EPUBs (50 primeiros)..." });
-    try {
-      const res = await fetch("/api/covers/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "missing", limit: 50 }),
-      });
-      const data = await res.json();
-      if (data?.results) {
-        setStatus({
-          type: "success",
-          message: `Lote: ${data.results.success} OK, ${data.results.failed} falhas, ${data.results.skipped} ignorados. Continua a clicar.`,
-        });
-        setPage(1);
-      } else {
-        setStatus({ type: "error", message: data.error ?? "Erro" });
-      }
-    } catch (err) {
-      setStatus({
-        type: "error",
-        message: err instanceof Error ? err.message : "Erro",
-      });
-    } finally {
-      setSyncingCovers(false);
     }
   }
 
@@ -387,7 +357,7 @@ function readBook(book: Book) {
               >
                 {darkMode ? <Sun size={18} /> : <Moon size={18} />}
               </button>
-                            <button
+              <button
                 className="flex h-10 items-center gap-2 rounded border border-outline-variant px-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant transition hover:bg-surface-container disabled:opacity-40"
                 disabled={syncingCovers}
                 onClick={async () => {
@@ -401,8 +371,6 @@ function readBook(book: Book) {
                         type: "info",
                         message: `Sync iniciado: ${data.state.totalBooks} livros para processar.`,
                       });
-
-                      // Polling do progresso
                       const interval = setInterval(async () => {
                         const progRes = await fetch("/api/covers/progress");
                         const prog = await progRes.json();
@@ -432,7 +400,7 @@ function readBook(book: Book) {
                     setSyncingCovers(false);
                   }
                 }}
-                title="Iniciar extracao de TODAS as capas em background (nao bloqueia)"
+                title="Iniciar extracao de TODAS as capas em background"
               >
                 <BookOpen size={16} className={syncingCovers ? "animate-pulse" : ""} />
                 <span className="hidden sm:inline">Capas</span>
@@ -723,22 +691,14 @@ function readBook(book: Book) {
                   {contextMenu.book.title}
                 </p>
               </div>
-				<button
-					onClick={() => toggleSelect(contextMenu.book)}
-					className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-on-surface transition hover:bg-surface-container"
-					>
-					{selectedIds.has(contextMenu.book.id) ? (
-					<>
-					<Check size={16} />
-					Desselecionar
-					</>
-					) : (
-					<>
-					<Check size={16} />
-					Selecionar
-					</>
-					)}
-				</button>
+              <button
+                onClick={() => toggleSelect(contextMenu.book)}
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-on-surface transition hover:bg-surface-container"
+              >
+                <Check size={16} />
+                {selectedIds.has(contextMenu.book.id) ? "Desselecionar" : "Selecionar"}
+              </button>
+              <button
                 onClick={() => readBook(contextMenu.book)}
                 disabled={!contextMenu.book.epub_url && !contextMenu.book.drive_file_id}
                 className="flex w-full items-center gap-3 border-t border-outline-variant px-4 py-3 text-left text-sm font-semibold text-primary transition hover:bg-surface-container disabled:opacity-50 disabled:hover:bg-transparent"
