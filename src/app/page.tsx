@@ -626,7 +626,7 @@ function readBook(book: Book) {
                         <button
                           onClick={(e) => handleBookAction(book, e)}
                           aria-label="Acoes do livro"
-                          className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
+                          className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
                         >
                           <BookOpen size={16} />
                         </button>
@@ -723,23 +723,22 @@ function readBook(book: Book) {
                   {contextMenu.book.title}
                 </p>
               </div>
-              <button
-                onClick={() => toggleSelect(contextMenu.book)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-on-surface transition hover:bg-surface-container"
-              >
-                {selectedIds.has(contextMenu.book.id) ? (
-                  <>
-                    <Check size={16} />
-                    Desselecionar
-                  </>
-                ) : (
-                  <>
-                    <BookOpen size={16} />
-                    Selecionar
-                  </>
-                )}
-              </button>
-              <button
+				<button
+					onClick={() => toggleSelect(contextMenu.book)}
+					className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-on-surface transition hover:bg-surface-container"
+					>
+					{selectedIds.has(contextMenu.book.id) ? (
+					<>
+					<Check size={16} />
+					Desselecionar
+					</>
+					) : (
+					<>
+					<Check size={16} />
+					Selecionar
+					</>
+					)}
+				</button>
                 onClick={() => readBook(contextMenu.book)}
                 disabled={!contextMenu.book.epub_url && !contextMenu.book.drive_file_id}
                 className="flex w-full items-center gap-3 border-t border-outline-variant px-4 py-3 text-left text-sm font-semibold text-primary transition hover:bg-surface-container disabled:opacity-50 disabled:hover:bg-transparent"
