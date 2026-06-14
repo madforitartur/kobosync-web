@@ -1,19 +1,3 @@
-export interface Book {
-  id: string;
-  drive_file_id: string;
-  title: string;
-  author: string | null;
-  series: string | null;
-  series_index: number | null;
-  language: string | null;
-  publisher: string | null;
-  isbn: string | null;
-  description: string | null;
-  cover_url: string | null;
-  epub_url: string | null;
-  filesize: number | null;
-  modified_at: string | null;
-}
 
 export interface DriveBookFile {
   id: string;
@@ -63,3 +47,4 @@ export type Book = {
   created_at: string;
   updated_at: string;
 };
+
