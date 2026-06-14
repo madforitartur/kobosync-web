@@ -205,7 +205,7 @@ export default function Home() {
     setContextMenu(null);
   }
 
-  function readBook(book: Book) {
+function readBook(book: Book) {
   if (!book.epub_url && !book.drive_file_id) {
     setStatus({
       type: "error",
@@ -214,7 +214,13 @@ export default function Home() {
     setContextMenu(null);
     return;
   }
-  window.open(`/read/${book.id}`, "_blank", "noopener,noreferrer");
+  const link = document.createElement("a");
+  link.href = `/read/${book.id}`;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
   setContextMenu(null);
 }
 
