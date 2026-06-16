@@ -277,18 +277,13 @@ export default function ReadPage() {
 
   // Auto-hide
   const scheduleHideControls = useCallback(() => {
-    if (isTouchDevice) {
-      setShowControls(true);
-      setShowSettings(true);
-      return;
-    }
     if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
     setShowControls(true);
     hideControlsTimeout.current = window.setTimeout(() => {
       setShowControls(false);
       setShowSettings(false);
     }, 3500);
-  }, [isTouchDevice]);
+  }, []);
 
   useEffect(() => {
     scheduleHideControls();
@@ -417,12 +412,25 @@ export default function ReadPage() {
     );
   }
 
+  const lastTap = useRef<number>(0);
+  const handleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      // Double tap
+      setShowControls((v) => !v);
+      setShowSettings(false);
+    } else {
+      scheduleHideControls();
+    }
+    lastTap.current = now;
+  }, [scheduleHideControls]);
+
   return (
     <motion.div
       className="relative flex h-screen w-screen flex-col overflow-hidden"
       style={{ backgroundColor: currentTheme.background }}
       onMouseMove={scheduleHideControls}
-      onClick={scheduleHideControls}
+      onClick={handleTap}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.2}
@@ -437,7 +445,7 @@ export default function ReadPage() {
     >
       {/* HEADER */}
       <AnimatePresence>
-        {(showControls || isTouchDevice) && (
+        {showControls && (
           <motion.header
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -452,11 +460,19 @@ export default function ReadPage() {
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleClose(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isTouchDevice) {
+                      setShowControls(false);
+                      setShowSettings(false);
+                    } else {
+                      handleClose();
+                    }
+                  }}
                   className="flex h-9 w-9 items-center justify-center rounded border transition"
                   style={{ borderColor: currentTheme.accent, color: currentTheme.text }}
-                  aria-label="Fechar e guardar posicao"
-                  title="Fechar (guarda a posicao)"
+                  aria-label={isTouchDevice ? "Ocultar menu" : "Fechar e guardar posicao"}
+                  title={isTouchDevice ? "Ocultar menu" : "Fechar (guarda a posicao)"}
                 >
                   <X size={18} />
                 </button>
@@ -494,6 +510,15 @@ export default function ReadPage() {
                 >
                   <Type size={16} />
                 </button>
+                {isTouchDevice && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleClose(); }}
+                    className="flex h-9 w-9 items-center justify-center rounded border transition bg-error/10 border-error/50 text-error"
+                    aria-label="Sair"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -585,7 +610,7 @@ export default function ReadPage() {
 
       {/* SETA ESQUERDA — Página anterior */}
       <AnimatePresence>
-        {(showControls || isTouchDevice) && (
+        {showControls && (
           <motion.button
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
@@ -610,7 +635,7 @@ export default function ReadPage() {
 
       {/* SETA DIREITA — Próxima página */}
       <AnimatePresence>
-        {(showControls || isTouchDevice) && (
+        {showControls && (
           <motion.button
             initial={{ opacity: 0, x: 8 }}
             animate={{ opacity: 1, x: 0 }}
@@ -652,7 +677,7 @@ export default function ReadPage() {
         >
           <div
             ref={scrollContainerRef}
-            className="prose-book h-full overflow-y-auto"
+            className={`prose-book h-full ${isTouchDevice ? "overflow-hidden" : "overflow-y-auto"}`}
             style={{
               backgroundColor: currentTheme.pageColor,
               color: currentTheme.text,
