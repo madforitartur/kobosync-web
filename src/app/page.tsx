@@ -15,19 +15,24 @@ import {
   Search,
   Sparkles,
   Sun,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { BookCover } from "@/components/BookCover";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { useIsTouchDevice } from "@/hooks/useDeviceType";
 import type { Book } from "@/types/library";
 
 type Status = { type: "info" | "success" | "error"; message: string } | null;
+type MobileTab = "library" | "selected" | "search";
 
 const PAGE_SIZE = 15;
+const MOBILE_PAGE_SIZE = 20;
 const SIDEBAR_VISIBLE_ITEMS = 12;
 const SIDEBAR_MAX_HEIGHT = `${SIDEBAR_VISIBLE_ITEMS * 36 + 8}px`;
 
 const formatBytes = (bytes: number | null) => {
-  if (!bytes) return "Tamanho indisponivel";
+  if (!bytes) return "–";
   const mb = bytes / 1024 / 1024;
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 };
@@ -52,6 +57,8 @@ function BookCoverPlaceholder({ title }: { title: string }) {
 }
 
 export default function Home() {
+  const isTouchDevice = useIsTouchDevice();
+
   const [books, setBooks] = useState<Book[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
@@ -69,6 +76,10 @@ export default function Home() {
   const [selectedBooks, setSelectedBooks] = useState<Book[]>([]);
   const [selectedLoading, setSelectedLoading] = useState(false);
 
+  // Mobile-specific state
+  const [mobileTab, setMobileTab] = useState<MobileTab>("library");
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+
   const [contextMenu, setContextMenu] = useState<{
     book: Book;
     x: number;
@@ -76,11 +87,24 @@ export default function Home() {
   } | null>(null);
 
   const isFiltered = searchQuery.trim().length > 0;
+  const pageSize = isTouchDevice ? MOBILE_PAGE_SIZE : PAGE_SIZE;
 
   const visibleBooks = useMemo(() => {
     if (showSelectedOnly) return selectedBooks;
     return books;
   }, [showSelectedOnly, selectedBooks, books]);
+
+  // Sincroniza mobileTab com showSelectedOnly
+  useEffect(() => {
+    if (mobileTab === "selected") {
+      setShowSelectedOnly(true);
+    } else {
+      setShowSelectedOnly(false);
+    }
+    if (mobileTab === "search") {
+      setMobileSearchOpen(true);
+    }
+  }, [mobileTab]);
 
   useEffect(() => {
     setPage(1);
@@ -89,17 +113,14 @@ export default function Home() {
   useEffect(() => {
     if (showSelectedOnly && selectedIds.size === 0) {
       setShowSelectedOnly(false);
+      setMobileTab("library");
     }
   }, [selectedIds, showSelectedOnly]);
 
   useEffect(() => {
     if (!contextMenu) return;
-    function onClick() {
-      setContextMenu(null);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setContextMenu(null);
-    }
+    function onClick() { setContextMenu(null); }
+    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setContextMenu(null); }
     document.addEventListener("click", onClick);
     document.addEventListener("keydown", onKey);
     return () => {
@@ -108,6 +129,14 @@ export default function Home() {
     };
   }, [contextMenu]);
 
+  // Dismiss status after 4s
+  useEffect(() => {
+    if (!status) return;
+    const t = window.setTimeout(() => setStatus(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [status]);
+
+  // Carrega livros
   useEffect(() => {
     if (showSelectedOnly) return;
     const controller = new AbortController();
@@ -116,7 +145,7 @@ export default function Home() {
       try {
         const params = new URLSearchParams();
         params.set("page", String(page));
-        params.set("limit", String(PAGE_SIZE));
+        params.set("limit", String(pageSize));
         if (searchQuery.trim()) params.set("q", searchQuery.trim());
 
         const response = await fetch(`/api/books?${params.toString()}`, {
@@ -133,8 +162,7 @@ export default function Home() {
         if (error instanceof Error && error.name === "AbortError") return;
         setStatus({
           type: "error",
-          message:
-            error instanceof Error ? error.message : "Erro ao carregar biblioteca.",
+          message: error instanceof Error ? error.message : "Erro ao carregar biblioteca.",
         });
       } finally {
         setLoading(false);
@@ -144,7 +172,7 @@ export default function Home() {
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [page, searchQuery, showSelectedOnly]);
+  }, [page, searchQuery, showSelectedOnly, pageSize]);
 
   useEffect(() => {
     if (!showSelectedOnly) return;
@@ -177,9 +205,7 @@ export default function Home() {
     const controller = new AbortController();
     (async () => {
       try {
-        const authorsRes = await fetch("/api/authors", {
-          signal: controller.signal,
-        });
+        const authorsRes = await fetch("/api/authors", { signal: controller.signal });
         const authorsData = await authorsRes.json();
         if (authorsRes.ok) setAuthors(authorsData.authors ?? []);
       } catch (error) {
@@ -208,7 +234,7 @@ export default function Home() {
     if (!book.epub_url && !book.drive_file_id) {
       setStatus({
         type: "error",
-        message: "Este livro nao tem ficheiro EPUB disponivel.",
+        message: "Este livro não tem ficheiro EPUB disponível.",
       });
       setContextMenu(null);
       return;
@@ -234,14 +260,14 @@ export default function Home() {
 
   async function syncLibrary() {
     setSyncing(true);
-    setStatus({ type: "info", message: "Sincronizando Google Drive com Supabase..." });
+    setStatus({ type: "info", message: "A sincronizar Google Drive…" });
     try {
       const response = await fetch("/api/sync", { method: "POST" });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Sincronizacao falhou.");
+      if (!response.ok) throw new Error(result.error ?? "Sincronização falhou.");
       setStatus({
         type: result.errors?.length ? "info" : "success",
-        message: `${result.processed} livros atualizados, ${result.skipped} sem alteracoes.`,
+        message: `${result.processed} livros atualizados, ${result.skipped} sem alterações.`,
       });
       setPage(1);
       setShowSelectedOnly(false);
@@ -272,11 +298,11 @@ export default function Home() {
           showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
         };
       if (!picker.showDirectoryPicker) {
-        setStatus({ type: "error", message: "Este browser nao suporta sincronizacao USB." });
+        setStatus({ type: "error", message: "Este browser não suporta sincronização USB." });
         return;
       }
       const dirHandle = await picker.showDirectoryPicker();
-      setStatus({ type: "info", message: `A copiar ${booksToSend.length} livros para o Kobo...` });
+      setStatus({ type: "info", message: `A copiar ${booksToSend.length} livros para o Kobo…` });
       for (const book of booksToSend) {
         if (!book.epub_url) continue;
         const response = await fetch(book.epub_url);
@@ -290,13 +316,13 @@ export default function Home() {
       setStatus({ type: "success", message: "Livros copiados para o Kobo." });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
-      setStatus({ type: "error", message: "Nao foi possivel copiar para o Kobo." });
+      setStatus({ type: "error", message: "Não foi possível copiar para o Kobo." });
     }
   }
 
   function goToPage(n: number) {
     setPage(Math.max(1, Math.min(totalPages, n)));
-    window.scrollTo({ top: 200, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function getPageNumbers(): (number | "ellipsis")[] {
@@ -311,6 +337,288 @@ export default function Home() {
 
   const isLoading = loading || selectedLoading;
 
+  // ========================
+  // MOBILE LAYOUT
+  // ========================
+  if (isTouchDevice) {
+    return (
+      <div className={darkMode ? "dark" : ""}>
+        <div
+          className="min-h-screen bg-background text-on-background"
+          style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom))" }}
+        >
+          {/* Mobile Header */}
+          <header
+            className="sticky top-0 z-40 border-b border-outline-variant bg-background/95 backdrop-blur-xl"
+            style={{ paddingTop: "env(safe-area-inset-top)" }}
+          >
+            <div className="flex h-14 items-center justify-between gap-3 px-4">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded bg-primary text-on-primary">
+                  <BookOpen size={16} />
+                </span>
+                <span className="font-display-lg text-[22px] font-bold text-primary">
+                  KoboSync
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant"
+                  onClick={() => setDarkMode((v) => !v)}
+                >
+                  {darkMode ? <Sun size={16} /> : <Moon size={16} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Mobile search bar (tab search ou filtro activo) */}
+            {(mobileTab === "search" || isFiltered) && (
+              <div className="flex items-center gap-2 border-t border-outline-variant bg-surface-container-low px-4 py-2">
+                <Search size={16} className="shrink-0 text-outline" />
+                <input
+                  autoFocus={mobileTab === "search"}
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-outline"
+                  placeholder="Título, autor, série…"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => { setSearchQuery(""); setMobileTab("library"); }}
+                    className="text-outline"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+            )}
+          </header>
+
+          <main className="px-3 pt-4">
+            {/* Stats row */}
+            {mobileTab === "library" && !isFiltered && (
+              <div className="mb-4 flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+                <div className="shrink-0 rounded-xl bg-primary px-4 py-3 text-on-primary">
+                  <p className="text-xl font-bold leading-none">{total}</p>
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-wider opacity-70">Livros</p>
+                </div>
+                <div className="shrink-0 rounded-xl bg-secondary px-4 py-3 text-on-secondary">
+                  <p className="text-xl font-bold leading-none">{authors.length}</p>
+                  <p className="mt-1 text-[10px] font-bold uppercase tracking-wider opacity-75">Autores</p>
+                </div>
+                {selectedIds.size > 0 && (
+                  <button
+                    onClick={() => setMobileTab("selected")}
+                    className="shrink-0 rounded-xl bg-surface-container-high px-4 py-3 text-left"
+                  >
+                    <p className="text-xl font-bold leading-none text-primary">{selectedIds.size}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-outline">Selecionados</p>
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Section title */}
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-display-lg text-[22px] font-bold text-primary">
+                {mobileTab === "selected"
+                  ? "Selecionados"
+                  : isFiltered
+                    ? `"${searchQuery}"`
+                    : "Biblioteca"}
+              </h2>
+              {!isLoading && (
+                <span className="text-xs text-on-surface-variant">
+                  {mobileTab === "selected"
+                    ? `${visibleBooks.length} livros`
+                    : isFiltered
+                      ? `${total} resultados`
+                      : `${total} total`}
+                </span>
+              )}
+            </div>
+
+            {/* Book grid — mobile: 3 colunas com capas pequenas */}
+            {isLoading ? (
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <div key={i} className="animate-pulse">
+                    <div className="aspect-epub rounded-lg bg-surface-container" />
+                    <div className="mt-2 h-3 w-4/5 rounded bg-surface-container" />
+                    <div className="mt-1 h-2.5 w-3/5 rounded bg-surface-container" />
+                  </div>
+                ))}
+              </div>
+            ) : visibleBooks.length > 0 ? (
+              <>
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                  {visibleBooks.map((book) => (
+                    <MobileBookCard
+                      key={book.id}
+                      book={book}
+                      isSelected={selectedIds.has(book.id)}
+                      onTap={() => toggleBook(book.id)}
+                      onLongPress={() => readBook(book)}
+                      onActionPress={(e) => handleBookAction(book, e)}
+                    />
+                  ))}
+                </div>
+
+                {/* Paginação mobile — simples: anterior/próximo */}
+                {!showSelectedOnly && totalPages > 1 && (
+                  <div className="mt-6 flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => goToPage(page - 1)}
+                      disabled={page === 1}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant disabled:opacity-30"
+                    >
+                      <ChevronLeft size={18} />
+                    </button>
+                    <span className="text-sm font-bold text-on-surface-variant">
+                      {page} / {totalPages}
+                    </span>
+                    <button
+                      onClick={() => goToPage(page + 1)}
+                      disabled={page === totalPages}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant disabled:opacity-30"
+                    >
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-20 text-center">
+                <BookOpen className="mb-4 text-outline" size={44} strokeWidth={1.4} />
+                <p className="font-bold text-on-surface-variant">
+                  {mobileTab === "selected"
+                    ? "Nenhum livro selecionado"
+                    : isFiltered
+                      ? "Sem resultados"
+                      : "Biblioteca vazia"}
+                </p>
+                {!isFiltered && mobileTab === "library" && (
+                  <p className="mt-2 text-sm text-outline">
+                    Usa o botão Sync para carregar os livros.
+                  </p>
+                )}
+              </div>
+            )}
+          </main>
+
+          {/* Context menu mobile */}
+          <AnimatePresence>
+            {contextMenu && (
+              <>
+                {/* Backdrop */}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[190] bg-black/40"
+                  onClick={() => setContextMenu(null)}
+                />
+                {/* Bottom sheet */}
+                <motion.div
+                  initial={{ y: "100%" }}
+                  animate={{ y: 0 }}
+                  exit={{ y: "100%" }}
+                  transition={{ type: "spring", damping: 28, stiffness: 300 }}
+                  className="fixed inset-x-0 bottom-0 z-[200] rounded-t-2xl bg-background p-4 shadow-2xl"
+                  style={{ paddingBottom: "calc(16px + env(safe-area-inset-bottom))" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-3 flex items-center gap-3">
+                    <div className="w-16 shrink-0">
+                      <BookCover
+                        coverUrl={contextMenu.book.cover_url}
+                        title={contextMenu.book.title}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-primary">{contextMenu.book.title}</p>
+                      <p className="truncate text-sm text-on-surface-variant">
+                        {contextMenu.book.author ?? "Autor desconhecido"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    <button
+                      onClick={() => readBook(contextMenu.book)}
+                      className="flex w-full items-center gap-3 rounded-xl bg-primary px-4 py-3.5 text-sm font-bold text-on-primary"
+                    >
+                      <BookOpen size={18} />
+                      Ler agora
+                    </button>
+                    <button
+                      onClick={() => toggleSelect(contextMenu.book)}
+                      className="flex w-full items-center gap-3 rounded-xl border border-outline-variant px-4 py-3.5 text-sm font-bold text-on-surface"
+                    >
+                      <Check size={18} />
+                      {selectedIds.has(contextMenu.book.id) ? "Remover da seleção" : "Adicionar à seleção"}
+                    </button>
+                    <button
+                      onClick={() => setContextMenu(null)}
+                      className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-outline"
+                    >
+                      <X size={16} />
+                      Fechar
+                    </button>
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* Bottom nav */}
+          <MobileBottomNav
+            activeTab={mobileTab}
+            onTabChange={(tab) => {
+              setMobileTab(tab);
+              if (tab !== "search") setMobileSearchOpen(false);
+            }}
+            selectedCount={selectedIds.size}
+            onSync={syncLibrary}
+            onKobo={syncToKobo}
+            syncing={syncing}
+          />
+
+          {/* Status toast */}
+          <AnimatePresence>
+            {status && (
+              <motion.div
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 24 }}
+                className="fixed inset-x-4 z-[300]"
+                style={{ bottom: "calc(80px + env(safe-area-inset-bottom))" }}
+              >
+                <div
+                  className={`flex items-center gap-3 rounded-xl px-4 py-3.5 text-sm font-semibold shadow-2xl ${
+                    status.type === "error"
+                      ? "bg-error text-on-error"
+                      : status.type === "success"
+                        ? "bg-primary text-on-primary"
+                        : "bg-secondary text-on-secondary"
+                  }`}
+                >
+                  {status.type === "error" ? <AlertCircle size={18} /> : <Check size={18} />}
+                  <span className="flex-1">{status.message}</span>
+                  <button onClick={() => setStatus(null)}>
+                    <X size={16} />
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    );
+  }
+
+  // ========================
+  // DESKTOP LAYOUT (original)
+  // ========================
   return (
     <div className={darkMode ? "dark" : ""}>
       <div className="min-h-screen bg-background text-on-background selection:bg-primary-fixed selection:text-primary">
@@ -343,7 +651,7 @@ export default function Home() {
                 <Search size={18} className="text-outline" />
                 <input
                   className="w-full bg-transparent text-sm outline-none placeholder:text-outline"
-                  placeholder="Pesquisar titulo, autor, serie, editora ou ISBN"
+                  placeholder="Pesquisar título, autor, série, editora ou ISBN"
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
                 />
@@ -362,7 +670,7 @@ export default function Home() {
                 disabled={syncingCovers}
                 onClick={async () => {
                   setSyncingCovers(true);
-                  setStatus({ type: "info", message: "A iniciar sync de TODAS as capas em background..." });
+                  setStatus({ type: "info", message: "A iniciar sync de TODAS as capas em background…" });
                   try {
                     const res = await fetch("/api/covers/sync-all", { method: "POST" });
                     const data = await res.json();
@@ -378,13 +686,13 @@ export default function Home() {
                           clearInterval(interval);
                           setStatus({
                             type: prog.progress.failed > 0 ? "info" : "success",
-                            message: `Concluido: ${prog.progress.success} capas extraidas, ${prog.progress.failed} falhas (${prog.progress.elapsedSec}s).`,
+                            message: `Concluído: ${prog.progress.success} capas extraídas, ${prog.progress.failed} falhas.`,
                           });
                           setPage(1);
                         } else {
                           setStatus({
                             type: "info",
-                            message: `A processar... ${prog.progress.percent}% (${prog.progress.processed}/${prog.progress.total}) - ETA: ${prog.progress.etaSec ?? "?"}s`,
+                            message: `A processar… ${prog.progress.percent}% (${prog.progress.processed}/${prog.progress.total}) - ETA: ${prog.progress.etaSec ?? "?"}s`,
                           });
                         }
                       }, 2000);
@@ -392,15 +700,11 @@ export default function Home() {
                       setStatus({ type: "error", message: data.error ?? "Erro" });
                     }
                   } catch (err) {
-                    setStatus({
-                      type: "error",
-                      message: err instanceof Error ? err.message : "Erro",
-                    });
+                    setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro" });
                   } finally {
                     setSyncingCovers(false);
                   }
                 }}
-                title="Iniciar extracao de TODAS as capas em background"
               >
                 <BookOpen size={16} className={syncingCovers ? "animate-pulse" : ""} />
                 <span className="hidden sm:inline">Capas</span>
@@ -436,8 +740,8 @@ export default function Home() {
                 A tua biblioteca Kobo, organizada a partir do Google Drive.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-on-surface-variant md:text-lg">
-                Metadados, capas e ficheiros EPUB sao sincronizados no servidor e servidos pelo Supabase
-                para uma experiencia rapida, pesquisavel e pronta para leitura online.
+                Metadados, capas e ficheiros EPUB são sincronizados no servidor e servidos pelo Supabase
+                para uma experiência rápida, pesquisável e pronta para leitura online.
               </p>
             </div>
 
@@ -470,26 +774,9 @@ export default function Home() {
                 >
                   {showSelectedOnly ? "A filtrar · clica para sair" : "Selecionados"}
                 </p>
-                {selectedIds.size > 0 && !showSelectedOnly && (
-                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wider text-secondary">
-                    Ver livros selecionados
-                  </p>
-                )}
               </button>
             </div>
           </section>
-
-          <div className="mb-8 flex flex-col gap-4 md:hidden">
-            <div className="flex items-center gap-2 rounded border border-outline-variant bg-surface-container-low px-3 py-2">
-              <Search size={18} className="text-outline" />
-              <input
-                className="w-full bg-transparent text-sm outline-none placeholder:text-outline"
-                placeholder="Pesquisar biblioteca"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-              />
-            </div>
-          </div>
 
           <div className="grid gap-10 lg:grid-cols-[220px_1fr]">
             <aside>
@@ -529,7 +816,7 @@ export default function Home() {
                   </h2>
                   <p className="mt-1 text-sm text-on-surface-variant">
                     {isLoading
-                      ? "A carregar livros..."
+                      ? "A carregar livros…"
                       : showSelectedOnly
                         ? `A mostrar ${visibleBooks.length} de ${selectedIds.size} selecionados`
                         : isFiltered
@@ -539,7 +826,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-outline">
                   <ArrowDownAZ size={16} />
-                  Ordenado por titulo
+                  Ordenado por título
                 </div>
               </div>
 
@@ -580,7 +867,7 @@ export default function Home() {
                               )}
                             </div>
                           )}
-                          <h3 className="line-clamp-2 font-display-lg text-[20px] font-bold leading-snug text-primary">
+                          <h3 className="mt-3 line-clamp-2 font-display-lg text-[20px] font-bold leading-snug text-primary">
                             {book.title}
                           </h3>
                           <p className="mt-1 truncate text-sm text-on-surface-variant">
@@ -593,7 +880,7 @@ export default function Home() {
 
                         <button
                           onClick={(e) => handleBookAction(book, e)}
-                          aria-label="Acoes do livro"
+                          aria-label="Ações do livro"
                           className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
                         >
                           <BookOpen size={16} />
@@ -604,18 +891,17 @@ export default function Home() {
 
                   {!showSelectedOnly && totalPages > 1 && (
                     <nav
-                      aria-label="Paginacao"
+                      aria-label="Paginação"
                       className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-outline-variant pt-6"
                     >
                       <p className="text-xs font-bold uppercase tracking-wider text-outline">
-                        Pagina {page} de {totalPages}
+                        Página {page} de {totalPages}
                       </p>
                       <div className="flex items-center gap-1">
                         <button
                           onClick={() => goToPage(page - 1)}
                           disabled={page === 1}
                           className="flex h-9 w-9 items-center justify-center rounded border border-outline-variant text-on-surface-variant transition hover:bg-surface-container disabled:opacity-30"
-                          aria-label="Pagina anterior"
                         >
                           <ChevronLeft size={16} />
                         </button>
@@ -641,7 +927,6 @@ export default function Home() {
                           onClick={() => goToPage(page + 1)}
                           disabled={page === totalPages}
                           className="flex h-9 w-9 items-center justify-center rounded border border-outline-variant text-on-surface-variant transition hover:bg-surface-container disabled:opacity-30"
-                          aria-label="Pagina seguinte"
                         >
                           <ChevronRight size={16} />
                         </button>
@@ -652,19 +937,14 @@ export default function Home() {
               ) : showSelectedOnly ? (
                 <div className="rounded border border-dashed border-outline-variant bg-surface-container-lowest px-6 py-20 text-center">
                   <Check className="mx-auto mb-4 text-outline" size={44} strokeWidth={1.4} />
-                  <h3 className="font-display-lg text-2xl font-bold text-primary">
-                    Sem livros selecionados.
-                  </h3>
-                  <p className="mx-auto mt-3 max-w-md text-on-surface-variant">
-                    Marca livros em qualquer pagina e clica no cartao "Selecionados" para os ver juntos.
-                  </p>
+                  <h3 className="font-display-lg text-2xl font-bold text-primary">Sem livros selecionados.</h3>
                 </div>
               ) : (
                 <div className="rounded border border-dashed border-outline-variant bg-surface-container-lowest px-6 py-20 text-center">
                   <BookOpen className="mx-auto mb-4 text-outline" size={44} strokeWidth={1.4} />
                   <h3 className="font-display-lg text-2xl font-bold text-primary">Nenhum livro encontrado.</h3>
                   <p className="mx-auto mt-3 max-w-md text-on-surface-variant">
-                    Sincroniza o Google Drive para preencher a biblioteca com capas e metadados EPUB.
+                    Sincroniza o Google Drive para preencher a biblioteca.
                   </p>
                 </div>
               )}
@@ -672,6 +952,7 @@ export default function Home() {
           </div>
         </main>
 
+        {/* Desktop context menu */}
         <AnimatePresence>
           {contextMenu && (
             <motion.div
@@ -701,7 +982,7 @@ export default function Home() {
               <button
                 onClick={() => readBook(contextMenu.book)}
                 disabled={!contextMenu.book.epub_url && !contextMenu.book.drive_file_id}
-                className="flex w-full items-center gap-3 border-t border-outline-variant px-4 py-3 text-left text-sm font-semibold text-primary transition hover:bg-surface-container disabled:opacity-50 disabled:hover:bg-transparent"
+                className="flex w-full items-center gap-3 border-t border-outline-variant px-4 py-3 text-left text-sm font-semibold text-primary transition hover:bg-surface-container disabled:opacity-50"
               >
                 <BookOpen size={16} />
                 Ler livro
@@ -710,6 +991,7 @@ export default function Home() {
           )}
         </AnimatePresence>
 
+        {/* Desktop status toast */}
         <AnimatePresence>
           {status && (
             <motion.div
@@ -734,6 +1016,95 @@ export default function Home() {
           )}
         </AnimatePresence>
       </div>
+    </div>
+  );
+}
+
+// ========================
+// MOBILE BOOK CARD
+// ========================
+type MobileBookCardProps = {
+  book: Book;
+  isSelected: boolean;
+  onTap: () => void;
+  onLongPress: () => void;
+  onActionPress: (e: React.MouseEvent) => void;
+};
+
+function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }: MobileBookCardProps) {
+  const [pressTimer, setPressTimer] = useState<number | null>(null);
+  const [pressing, setPressing] = useState(false);
+
+  function handleTouchStart() {
+    setPressing(true);
+    const t = window.setTimeout(() => {
+      onLongPress();
+      setPressing(false);
+    }, 500);
+    setPressTimer(t);
+  }
+
+  function handleTouchEnd() {
+    if (pressTimer) {
+      window.clearTimeout(pressTimer);
+      setPressTimer(null);
+    }
+    setPressing(false);
+  }
+
+  return (
+    <div className="relative">
+      <motion.div
+        animate={{ scale: pressing ? 0.94 : 1 }}
+        transition={{ duration: 0.15 }}
+        className="cursor-pointer"
+        onClick={onTap}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        onTouchMove={handleTouchEnd}
+        onContextMenu={(e) => { e.preventDefault(); onActionPress(e); }}
+      >
+        <div className="relative">
+          {book.cover_url ? (
+            <BookCover
+              coverUrl={book.cover_url}
+              title={book.title}
+              isSelected={isSelected}
+            />
+          ) : (
+            <div className="relative">
+              <div className="flex aspect-epub w-full items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-container text-on-primary">
+                <div className="flex flex-col items-center gap-1 p-2 text-center">
+                  <BookOpen size={20} strokeWidth={1.4} />
+                  <p className="line-clamp-2 text-[9px] font-bold leading-tight">
+                    {book.title.slice(0, 2).toUpperCase()}
+                  </p>
+                </div>
+              </div>
+              {isSelected && (
+                <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg">
+                  <Check size={11} />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <p className="mt-1.5 line-clamp-2 text-[11px] font-bold leading-tight text-primary">
+          {book.title}
+        </p>
+        <p className="mt-0.5 truncate text-[10px] text-on-surface-variant">
+          {book.author ?? "–"}
+        </p>
+      </motion.div>
+
+      {/* Botão de ação rápida */}
+      <button
+        onClick={onActionPress}
+        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 text-on-surface-variant shadow backdrop-blur-sm"
+        aria-label="Mais opções"
+      >
+        <BookOpen size={11} />
+      </button>
     </div>
   );
 }
