@@ -79,6 +79,25 @@ export default function Home() {
   // Mobile-specific state
   const [mobileTab, setMobileTab] = useState<MobileTab>("library");
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  async function handleInstall() {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") {
+      setDeferredPrompt(null);
+    }
+  }
 
   const [contextMenu, setContextMenu] = useState<{
     book: Book;
@@ -362,6 +381,15 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
+                {deferredPrompt && (
+                  <button
+                    className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary transition hover:bg-primary-container"
+                    onClick={handleInstall}
+                    aria-label="Instalar App"
+                  >
+                    <Download size={16} />
+                  </button>
+                )}
                 <button
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant"
                   onClick={() => setDarkMode((v) => !v)}

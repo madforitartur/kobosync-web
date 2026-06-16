@@ -9,11 +9,14 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Maximize2,
+  Minimize2,
   Type,
   X,
 } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
+import { useIsTouchDevice } from "@/hooks/useDeviceType";
 
 type Chapter = {
   id: string;
@@ -89,6 +92,7 @@ const THEMES: Record<
 };
 
 export default function ReadPage() {
+  const isTouchDevice = useIsTouchDevice();
   const params = useParams();
   const router = useRouter();
   const bookId = String(params.id ?? "");
@@ -99,6 +103,7 @@ export default function ReadPage() {
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [theme, setTheme] = useState<Theme>("light");
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
@@ -205,6 +210,26 @@ export default function ReadPage() {
     };
   }, [data, bookId]);
 
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch((e) => {
+        console.error(`Error attempting to enable fullscreen mode: ${e.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+
   /**
    * Ao fechar (X ou Esc), guarda a posição final antes de sair.
    */
@@ -269,17 +294,45 @@ export default function ReadPage() {
 
   /**
    * Avança 1 PÁGINA COMPLETA (altura visível).
+   * Ajustamos para não cortar linhas a meio, arredondando para baixo pelo line-height.
    */
   function goNextPage() {
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollBy({ top: el.clientHeight, behavior: "smooth" });
+
+    const lineHeights: Record<FontSize, number> = {
+      xs: 21,
+      sm: 25,
+      md: 29,
+      lg: 33,
+      xl: 40,
+    };
+    const lh = lineHeights[fontSize];
+    const visibleHeight = el.clientHeight;
+    // Quantas linhas cabem no ecrã (aproximadamente)
+    const linesPerPage = Math.floor(visibleHeight / lh);
+    const scrollAmount = linesPerPage * lh;
+
+    el.scrollBy({ top: scrollAmount, behavior: "smooth" });
   }
 
   function goPrevPage() {
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollBy({ top: -el.clientHeight, behavior: "smooth" });
+
+    const lineHeights: Record<FontSize, number> = {
+      xs: 21,
+      sm: 25,
+      md: 29,
+      lg: 33,
+      xl: 40,
+    };
+    const lh = lineHeights[fontSize];
+    const visibleHeight = el.clientHeight;
+    const linesPerPage = Math.floor(visibleHeight / lh);
+    const scrollAmount = linesPerPage * lh;
+
+    el.scrollBy({ top: -scrollAmount, behavior: "smooth" });
   }
 
   /**
@@ -359,12 +412,36 @@ export default function ReadPage() {
     );
   }
 
+  const lastTap = useRef<number>(0);
+  const handleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      // Double tap
+      setShowControls((v) => !v);
+      setShowSettings(false);
+    } else {
+      scheduleHideControls();
+    }
+    lastTap.current = now;
+  }, [scheduleHideControls]);
+
   return (
-    <div
-      className="relative h-screen w-screen overflow-hidden"
+    <motion.div
+      className="relative flex h-screen w-screen flex-col overflow-hidden"
       style={{ backgroundColor: currentTheme.background }}
       onMouseMove={scheduleHideControls}
-      onClick={scheduleHideControls}
+      onClick={handleTap}
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      dragElastic={0.2}
+      onDragEnd={(_, info) => {
+        const threshold = 50;
+        if (info.offset.x < -threshold) {
+          goNextPage();
+        } else if (info.offset.x > threshold) {
+          goPrevPage();
+        }
+      }}
     >
       {/* HEADER */}
       <AnimatePresence>
@@ -373,17 +450,29 @@ export default function ReadPage() {
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            className="fixed inset-x-0 top-0 z-30 px-4 py-3 md:px-8"
-            style={{ backgroundColor: `${currentTheme.background}f2`, backdropFilter: "blur(12px)" }}
+            className={`${isTouchDevice ? "relative" : "fixed inset-x-0 top-0"} z-30 px-4 py-3 md:px-8`}
+            style={{
+              backgroundColor: isTouchDevice ? currentTheme.background : `${currentTheme.background}f2`,
+              backdropFilter: isTouchDevice ? "none" : "blur(12px)",
+              paddingTop: isTouchDevice ? "env(safe-area-inset-top)" : "0.75rem",
+            }}
           >
             <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
               <div className="flex min-w-0 items-center gap-3">
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleClose(); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (isTouchDevice) {
+                      setShowControls(false);
+                      setShowSettings(false);
+                    } else {
+                      handleClose();
+                    }
+                  }}
                   className="flex h-9 w-9 items-center justify-center rounded border transition"
                   style={{ borderColor: currentTheme.accent, color: currentTheme.text }}
-                  aria-label="Fechar e guardar posicao"
-                  title="Fechar (guarda a posicao)"
+                  aria-label={isTouchDevice ? "Ocultar menu" : "Fechar e guardar posicao"}
+                  title={isTouchDevice ? "Ocultar menu" : "Fechar (guarda a posicao)"}
                 >
                   <X size={18} />
                 </button>
@@ -398,18 +487,39 @@ export default function ReadPage() {
                 </div>
               </div>
 
-              <button
-                onClick={(e) => { e.stopPropagation(); setShowSettings((v) => !v); }}
-                className="flex h-9 w-9 items-center justify-center rounded border transition"
-                style={{
-                  borderColor: currentTheme.accent,
-                  color: showSettings ? currentTheme.pageColor : currentTheme.text,
-                  backgroundColor: showSettings ? currentTheme.text : "transparent",
-                }}
-                aria-label="Definicoes"
-              >
-                <Type size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                {isTouchDevice && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+                    className="flex h-9 w-9 items-center justify-center rounded border transition"
+                    style={{ borderColor: currentTheme.accent, color: currentTheme.text }}
+                    aria-label="Fullscreen"
+                  >
+                    {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowSettings((v) => !v); }}
+                  className={`flex h-9 w-9 items-center justify-center rounded border transition ${isTouchDevice ? "hidden" : ""}`}
+                  style={{
+                    borderColor: currentTheme.accent,
+                    color: showSettings ? currentTheme.pageColor : currentTheme.text,
+                    backgroundColor: showSettings ? currentTheme.text : "transparent",
+                  }}
+                  aria-label="Definicoes"
+                >
+                  <Type size={16} />
+                </button>
+                {isTouchDevice && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleClose(); }}
+                    className="flex h-9 w-9 items-center justify-center rounded border transition bg-error/10 border-error/50 text-error"
+                    aria-label="Sair"
+                  >
+                    <ArrowLeft size={16} />
+                  </button>
+                )}
+              </div>
             </div>
 
             <AnimatePresence>
@@ -506,11 +616,14 @@ export default function ReadPage() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -8 }}
             onClick={(e) => { e.stopPropagation(); goPrevPage(); }}
-            className="fixed left-3 top-1/2 z-20 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 md:left-6 md:h-14 md:w-14"
+            className={`fixed z-20 flex items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 ${
+              isTouchDevice ? "bottom-4 left-4 h-12 w-12" : "left-3 top-1/2 -translate-y-1/2 h-12 w-12 md:left-6 md:h-14 md:w-14"
+            }`}
             style={{
               backgroundColor: `${currentTheme.pageColor}ee`,
               borderColor: currentTheme.accent,
               color: currentTheme.text,
+              bottom: isTouchDevice ? "calc(1rem + env(safe-area-inset-bottom))" : undefined,
             }}
             aria-label="Pagina anterior (←)"
             title="Pagina anterior"
@@ -528,11 +641,14 @@ export default function ReadPage() {
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 8 }}
             onClick={(e) => { e.stopPropagation(); goNextPage(); }}
-            className="fixed right-3 top-1/2 z-20 -translate-y-1/2 flex h-12 w-12 items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 md:right-6 md:h-14 md:w-14"
+            className={`fixed z-20 flex items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 ${
+              isTouchDevice ? "bottom-4 right-4 h-12 w-12" : "right-3 top-1/2 -translate-y-1/2 h-12 w-12 md:right-6 md:h-14 md:w-14"
+            }`}
             style={{
               backgroundColor: `${currentTheme.pageColor}ee`,
               borderColor: currentTheme.accent,
               color: currentTheme.text,
+              bottom: isTouchDevice ? "calc(1rem + env(safe-area-inset-bottom))" : undefined,
             }}
             aria-label="Pagina seguinte (→)"
             title="Pagina seguinte"
@@ -543,23 +659,30 @@ export default function ReadPage() {
       </AnimatePresence>
 
       {/* A "FOLHA" — 1 página com scroll vertical */}
-      <div className="flex h-full w-full items-center justify-center px-3 pt-20 pb-6 md:px-8 md:pt-24 md:pb-10">
+      <div
+        className={`flex w-full items-center justify-center ${
+          isTouchDevice ? "flex-1 overflow-hidden" : "h-full px-3 pt-20 pb-6 md:px-8 md:pt-24 md:pb-10"
+        }`}
+      >
         <div
-          className="relative h-full max-h-[860px] w-full overflow-hidden rounded-lg"
+          className={`relative h-full w-full overflow-hidden ${
+            isTouchDevice ? "" : "max-h-[860px] rounded-lg"
+          }`}
           style={{
-            maxWidth: "min(960px, calc(100vw - 2rem))",
-            boxShadow:
-              "0 25px 50px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05), inset 0 0 60px rgba(0,0,0,0.04)",
+            maxWidth: isTouchDevice ? "100%" : "min(960px, calc(100vw - 2rem))",
+            boxShadow: isTouchDevice
+              ? "none"
+              : "0 25px 50px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05), inset 0 0 60px rgba(0,0,0,0.04)",
           }}
         >
           <div
             ref={scrollContainerRef}
-            className="prose-book h-full overflow-y-auto"
+            className={`prose-book h-full ${isTouchDevice ? "overflow-hidden" : "overflow-y-auto"}`}
             style={{
               backgroundColor: currentTheme.pageColor,
               color: currentTheme.text,
               // MUDANÇA 1+2: Margens superior/inferior GRANDES, laterais também generosas
-              padding: "5rem 3.5rem",
+              padding: isTouchDevice ? "2rem 1.5rem" : "5rem 3.5rem",
               scrollbarWidth: "thin",
               scrollbarColor: `${currentTheme.accent} transparent`,
             }}
@@ -585,6 +708,6 @@ export default function ReadPage() {
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
