@@ -856,14 +856,14 @@ export default function Home() {
                               coverUrl={book.cover_url}
                               title={book.title}
                               isSelected={selectedIds.has(book.id)}
-                              selectionClassName="absolute right-2 bottom-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+                              selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
                               checkSize={16}
                             />
                           ) : (
                             <div className="relative">
                               <BookCoverPlaceholder title={book.title} />
                               {selectedIds.has(book.id) && (
-                                <div className="absolute right-2 bottom-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
+                                <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
                                   <Check size={16} />
                                 </div>
                               )}
@@ -1072,7 +1072,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
               coverUrl={book.cover_url}
               title={book.title}
               isSelected={isSelected}
-              selectionClassName="absolute right-1 bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+              selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
               checkSize={11}
             />
           ) : (
@@ -1086,7 +1086,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
                 </div>
               </div>
               {isSelected && (
-                <div className="absolute right-1 bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
+                <div className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
                   <Check size={11} />
                 </div>
               )}
