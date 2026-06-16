@@ -856,13 +856,15 @@ export default function Home() {
                               coverUrl={book.cover_url}
                               title={book.title}
                               isSelected={selectedIds.has(book.id)}
+                              selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+                              checkSize={16}
                             />
                           ) : (
                             <div className="relative">
                               <BookCoverPlaceholder title={book.title} />
                               {selectedIds.has(book.id) && (
-                                <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg">
-                                  <Check size={14} />
+                                <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
+                                  <Check size={16} />
                                 </div>
                               )}
                             </div>
@@ -881,7 +883,7 @@ export default function Home() {
                         <button
                           onClick={(e) => handleBookAction(book, e)}
                           aria-label="Ações do livro"
-                          className="absolute right-2 top-2 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
+                          className="absolute right-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
                         >
                           <BookOpen size={16} />
                         </button>
@@ -1070,6 +1072,8 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
               coverUrl={book.cover_url}
               title={book.title}
               isSelected={isSelected}
+              selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+              checkSize={11}
             />
           ) : (
             <div className="relative">
@@ -1082,7 +1086,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
                 </div>
               </div>
               {isSelected && (
-                <div className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg">
+                <div className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
                   <Check size={11} />
                 </div>
               )}

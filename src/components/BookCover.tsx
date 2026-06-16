@@ -7,9 +7,17 @@ type BookCoverProps = {
   coverUrl?: string | null;
   title: string;
   isSelected?: boolean;
+  selectionClassName?: string;
+  checkSize?: number;
 };
 
-export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProps) {
+export function BookCover({
+  coverUrl,
+  title,
+  isSelected = false,
+  selectionClassName,
+  checkSize = 14,
+}: BookCoverProps) {
   // NOVO: se a imagem falhar ao carregar, mostra placeholder
   const [imgError, setImgError] = useState(false);
   const showPlaceholder = !coverUrl || imgError;
@@ -21,6 +29,9 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
+  const defaultSelectionClassName =
+    "absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background";
+
   if (showPlaceholder) {
     return (
       <div className="relative aspect-epub w-full overflow-hidden rounded">
@@ -31,8 +42,8 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
           </p>
         </div>
         {isSelected && (
-          <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
-            <Check size={14} />
+          <div className={selectionClassName || defaultSelectionClassName}>
+            <Check size={checkSize} />
           </div>
         )}
       </div>
@@ -50,8 +61,8 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
         className="h-full w-full object-cover"
       />
       {isSelected && (
-        <div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
-          <Check size={14} />
+        <div className={selectionClassName || defaultSelectionClassName}>
+          <Check size={checkSize} />
         </div>
       )}
     </div>
