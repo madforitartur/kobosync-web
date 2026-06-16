@@ -58,6 +58,7 @@ function BookCoverPlaceholder({ title }: { title: string }) {
 
 export default function Home() {
   const isTouchDevice = useIsTouchDevice();
+  const [mounted, setMounted] = useState(false);
 
   const [books, setBooks] = useState<Book[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -82,6 +83,7 @@ export default function Home() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
+    setMounted(true);
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -356,10 +358,14 @@ export default function Home() {
 
   const isLoading = loading || selectedLoading;
 
+  if (!mounted) return null;
+
   // ========================
   // MOBILE LAYOUT
   // ========================
   if (isTouchDevice) {
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+
     return (
       <div className={darkMode ? "dark" : ""}>
         <div
@@ -381,7 +387,7 @@ export default function Home() {
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
-                {deferredPrompt && (
+                {deferredPrompt && !isStandalone && (
                   <button
                     className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary transition hover:bg-primary-container"
                     onClick={handleInstall}
@@ -911,7 +917,7 @@ export default function Home() {
                         <button
                           onClick={(e) => handleBookAction(book, e)}
                           aria-label="Ações do livro"
-                          className="absolute right-2 bottom-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
+                          className="absolute right-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
                         >
                           <BookOpen size={16} />
                         </button>
@@ -1132,7 +1138,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
       {/* Botão de ação rápida */}
       <button
         onClick={onActionPress}
-        className="absolute right-1 bottom-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 text-on-surface-variant shadow backdrop-blur-sm"
+        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 text-on-surface-variant shadow backdrop-blur-sm"
         aria-label="Mais opções"
       >
         <BookOpen size={11} />

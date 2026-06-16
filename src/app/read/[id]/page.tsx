@@ -93,6 +93,7 @@ const THEMES: Record<
 
 export default function ReadPage() {
   const isTouchDevice = useIsTouchDevice();
+  const [mounted, setMounted] = useState(false);
   const params = useParams();
   const router = useRouter();
   const bookId = String(params.id ?? "");
@@ -100,6 +101,10 @@ export default function ReadPage() {
   const [book, setBook] = useState<Book | null>(null);
   const [data, setData] = useState<ReadData | null>(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [theme, setTheme] = useState<Theme>("light");
@@ -425,12 +430,14 @@ export default function ReadPage() {
     lastTap.current = now;
   }, [scheduleHideControls]);
 
+  if (!mounted) return null;
+
   return (
     <motion.div
       className="relative flex h-screen w-screen flex-col overflow-hidden"
       style={{ backgroundColor: currentTheme.background }}
       onMouseMove={scheduleHideControls}
-      onClick={handleTap}
+      onTap={handleTap}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       dragElastic={0.2}
