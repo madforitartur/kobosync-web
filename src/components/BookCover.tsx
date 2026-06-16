@@ -30,7 +30,7 @@ export function BookCover({
     .join("");
 
   const defaultSelectionClassName =
-    "absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background";
+    "absolute right-2 bottom-2 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background";
 
   if (showPlaceholder) {
     return (
