@@ -101,10 +101,6 @@ export default function ReadPage() {
   const [book, setBook] = useState<Book | null>(null);
   const [data, setData] = useState<ReadData | null>(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [theme, setTheme] = useState<Theme>("light");
@@ -117,6 +113,11 @@ export default function ReadPage() {
   // Refs
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const skipNextSave = useRef(false);
+  const lastTap = useRef<number>(0);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Carrega metadados + conteúdo
   useEffect(() => {
@@ -256,6 +257,49 @@ export default function ReadPage() {
     router.back();
   }, [bookId, router]);
 
+  /**
+   * Avança 1 PÁGINA COMPLETA (altura visível).
+   * Ajustamos para não cortar linhas a meio, arredondando para baixo pelo line-height.
+   */
+  const goNextPage = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const lineHeights: Record<FontSize, number> = {
+      xs: 21,
+      sm: 25,
+      md: 29,
+      lg: 33,
+      xl: 40,
+    };
+    const lh = lineHeights[fontSize];
+    const visibleHeight = el.clientHeight;
+    // Quantas linhas cabem no ecrã (aproximadamente)
+    const linesPerPage = Math.floor(visibleHeight / lh);
+    const scrollAmount = linesPerPage * lh;
+
+    el.scrollBy({ top: scrollAmount, behavior: "smooth" });
+  }, [fontSize]);
+
+  const goPrevPage = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const lineHeights: Record<FontSize, number> = {
+      xs: 21,
+      sm: 25,
+      md: 29,
+      lg: 33,
+      xl: 40,
+    };
+    const lh = lineHeights[fontSize];
+    const visibleHeight = el.clientHeight;
+    const linesPerPage = Math.floor(visibleHeight / lh);
+    const scrollAmount = linesPerPage * lh;
+
+    el.scrollBy({ top: -scrollAmount, behavior: "smooth" });
+  }, [fontSize]);
+
   // Atalhos
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -266,19 +310,13 @@ export default function ReadPage() {
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         goNextPage();
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        goPrevLine();
-      } else if (e.key === "ArrowDown") {
-        e.preventDefault();
-        goNextLine();
       } else if (e.key === "Escape") {
         handleClose();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [showSettings, goPrevPage, goNextPage, handleClose]);
 
   // Auto-hide
   const scheduleHideControls = useCallback(() => {
@@ -297,82 +335,23 @@ export default function ReadPage() {
     };
   }, [scheduleHideControls]);
 
-  /**
-   * Avança 1 PÁGINA COMPLETA (altura visível).
-   * Ajustamos para não cortar linhas a meio, arredondando para baixo pelo line-height.
-   */
-  function goNextPage() {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    const lh = lineHeights[fontSize];
-    const visibleHeight = el.clientHeight;
-    // Quantas linhas cabem no ecrã (aproximadamente)
-    const linesPerPage = Math.floor(visibleHeight / lh);
-    const scrollAmount = linesPerPage * lh;
-
-    el.scrollBy({ top: scrollAmount, behavior: "smooth" });
-  }
-
-  function goPrevPage() {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    const lh = lineHeights[fontSize];
-    const visibleHeight = el.clientHeight;
-    const linesPerPage = Math.floor(visibleHeight / lh);
-    const scrollAmount = linesPerPage * lh;
-
-    el.scrollBy({ top: -scrollAmount, behavior: "smooth" });
-  }
-
-  /**
-   * Avança 1 LINHA (baseado no line-height da fonte atual).
-   * Para "xs" é ~20px, para "xl" é ~40px.
-   */
-  function goNextLine() {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    el.scrollBy({ top: lineHeights[fontSize], behavior: "smooth" });
-  }
-
-  function goPrevLine() {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    el.scrollBy({ top: -lineHeights[fontSize], behavior: "smooth" });
-  }
+  const handleTap = useCallback(() => {
+    const now = Date.now();
+    if (now - lastTap.current < 300) {
+      // Double tap
+      setShowControls((v) => !v);
+      setShowSettings(false);
+    } else {
+      scheduleHideControls();
+    }
+    lastTap.current = now;
+  }, [scheduleHideControls]);
 
   const currentTheme = THEMES[theme];
 
   // ============== RENDERS ==============
+
+  if (!mounted) return null;
 
   if (loading) {
     return (
@@ -416,21 +395,6 @@ export default function ReadPage() {
       </div>
     );
   }
-
-  const lastTap = useRef<number>(0);
-  const handleTap = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTap.current < 300) {
-      // Double tap
-      setShowControls((v) => !v);
-      setShowSettings(false);
-    } else {
-      scheduleHideControls();
-    }
-    lastTap.current = now;
-  }, [scheduleHideControls]);
-
-  if (!mounted) return null;
 
   return (
     <motion.div
