@@ -84,6 +84,11 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+
+    if (isTouchDevice) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+
     const handler = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);

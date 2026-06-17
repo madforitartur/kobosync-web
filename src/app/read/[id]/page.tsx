@@ -106,7 +106,7 @@ export default function ReadPage() {
   const [theme, setTheme] = useState<Theme>("light");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [showSettings, setShowSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(true); // Always show on open
   const [restoredFromCache, setRestoredFromCache] = useState(false);
   const hideControlsTimeout = useRef<number | null>(null);
 
@@ -236,6 +236,12 @@ export default function ReadPage() {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
+  useEffect(() => {
+    if (mounted && isTouchDevice) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+  }, [mounted, isTouchDevice]);
+
   /**
    * Ao fechar (X ou Esc), guarda a posição final antes de sair.
    */
@@ -300,6 +306,27 @@ export default function ReadPage() {
     el.scrollBy({ top: -scrollAmount, behavior: "smooth" });
   }, [fontSize]);
 
+  // Auto-hide
+  const scheduleHideControls = useCallback(() => {
+    if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
+    setShowControls(true);
+    // User wants settings to appear for 4s then hide on open/interaction
+    setShowSettings(true);
+    hideControlsTimeout.current = window.setTimeout(() => {
+      setShowControls(false);
+      setShowSettings(false);
+    }, 4000);
+  }, []);
+
+  useEffect(() => {
+    if (mounted) {
+      scheduleHideControls();
+    }
+    return () => {
+      if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
+    };
+  }, [mounted, scheduleHideControls]);
+
   // Atalhos
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -318,29 +345,13 @@ export default function ReadPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [showSettings, goPrevPage, goNextPage, handleClose]);
 
-  // Auto-hide
-  const scheduleHideControls = useCallback(() => {
-    if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
-    setShowControls(true);
-    hideControlsTimeout.current = window.setTimeout(() => {
-      setShowControls(false);
-      setShowSettings(false);
-    }, 3500);
-  }, []);
-
-  useEffect(() => {
-    scheduleHideControls();
-    return () => {
-      if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
-    };
-  }, [scheduleHideControls]);
-
   const handleTap = useCallback(() => {
     const now = Date.now();
     if (now - lastTap.current < 300) {
-      // Double tap
+      // Double tap toggles both
       setShowControls((v) => !v);
-      setShowSettings(false);
+      setShowSettings((v) => !v);
+      if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
     } else {
       scheduleHideControls();
     }
@@ -471,7 +482,7 @@ export default function ReadPage() {
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowSettings((v) => !v); }}
-                  className={`flex h-9 w-9 items-center justify-center rounded border transition ${isTouchDevice ? "hidden" : ""}`}
+                  className="flex h-9 w-9 items-center justify-center rounded border transition"
                   style={{
                     borderColor: currentTheme.accent,
                     color: showSettings ? currentTheme.pageColor : currentTheme.text,
@@ -581,7 +592,7 @@ export default function ReadPage() {
 
       {/* SETA ESQUERDA — Página anterior */}
       <AnimatePresence>
-        {showControls && (
+        {showControls && !isTouchDevice && (
           <motion.button
             initial={{ opacity: 0, x: -8 }}
             animate={{ opacity: 1, x: 0 }}
@@ -606,7 +617,7 @@ export default function ReadPage() {
 
       {/* SETA DIREITA — Próxima página */}
       <AnimatePresence>
-        {showControls && (
+        {showControls && !isTouchDevice && (
           <motion.button
             initial={{ opacity: 0, x: 8 }}
             animate={{ opacity: 1, x: 0 }}
