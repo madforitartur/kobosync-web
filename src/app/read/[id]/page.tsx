@@ -3,97 +3,46 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  ArrowLeft,
-  BookOpen,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  Maximize2,
-  Minimize2,
-  Type,
-  X,
-} from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, Settings2, X } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
-import { useIsTouchDevice } from "@/hooks/useDeviceType";
 
-type Chapter = {
-  id: string;
-  title: string;
-  html: string;
-};
-
-type ReadData = {
-  title: string;
-  chapters: Chapter[];
-};
-
+type Chapter = { id: string; title: string; html: string };
+type ReadData = { title: string; chapters: Chapter[] };
 type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 type Theme = "light" | "sepia" | "dark" | "paper";
 
-// Cache key prefix
 const CACHE_PREFIX = "kobosync:reading:";
+const DOUBLE_TAP_MS = 280;
+const SWIPE_MIN_X = 50;   // px mínimo para contar como swipe
+const SWIPE_MAX_Y = 80;   // px máximo vertical para não cancelar scroll
 
 const FONT_SIZE_CLASS: Record<FontSize, string> = {
-  xs: "text-[13px] leading-[1.6]",
-  sm: "text-[15px] leading-[1.65]",
-  md: "text-[17px] leading-[1.7]",
-  lg: "text-[19px] leading-[1.75]",
-  xl: "text-[22px] leading-[1.8]",
+  xs: "text-[13px] leading-relaxed",
+  sm: "text-[15px] leading-relaxed",
+  md: "text-[17px] leading-[1.75]",
+  lg: "text-[19px] leading-[1.8]",
+  xl: "text-[22px] leading-[1.85]",
 };
 
-const FONT_SIZE_LABELS: Record<FontSize, string> = {
-  xs: "XS",
-  sm: "S",
-  md: "M",
-  lg: "L",
-  xl: "XL",
+const FONT_SIZE_LABELS: Record<FontSize, string> = { xs: "XS", sm: "S", md: "M", lg: "L", xl: "XL" };
+
+const THEMES: Record<Theme, { label: string; bg: string; page: string; text: string; accent: string }> = {
+  light:  { label: "Claro",  bg: "#e8e6e1", page: "#fdfcf8", text: "#1a1a1a", accent: "#6b6f7a" },
+  sepia:  { label: "Sépia",  bg: "#d4c4a8", page: "#f5ecd9", text: "#3d2f1f", accent: "#9b7f58" },
+  paper:  { label: "Papel",  bg: "#c9c5be", page: "#f7f3ea", text: "#1a1a1a", accent: "#6a6050" },
+  dark:   { label: "Noite",  bg: "#0d0d0f", page: "#18181b", text: "#e4e4e7", accent: "#71717a" },
 };
 
-const THEMES: Record<
-  Theme,
-  {
-    label: string;
-    background: string;
-    pageColor: string;
-    text: string;
-    accent: string;
-  }
-> = {
-  light: {
-    label: "Claro",
-    background: "#e8e6e1",
-    pageColor: "#fdfcf8",
-    text: "#1a1a1a",
-    accent: "#585e6c",
-  },
-  sepia: {
-    label: "Sépia",
-    background: "#d4c4a8",
-    pageColor: "#f5ecd9",
-    text: "#3d2f1f",
-    accent: "#8b6f47",
-  },
-  paper: {
-    label: "Papel",
-    background: "#c9c5be",
-    pageColor: "#f7f3ea",
-    text: "#1a1a1a",
-    accent: "#5a5040",
-  },
-  dark: {
-    label: "Noite",
-    background: "#0d0d0f",
-    pageColor: "#1a1a1d",
-    text: "#e0e0e0",
-    accent: "#9ca3af",
-  },
-};
+function requestFullscreen() {
+  const el = document.documentElement;
+  try {
+    if (el.requestFullscreen) el.requestFullscreen();
+    else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
+  } catch {}
+}
 
 export default function ReadPage() {
-  const isTouchDevice = useIsTouchDevice();
-  const [mounted, setMounted] = useState(false);
   const params = useParams();
   const router = useRouter();
   const bookId = String(params.id ?? "");
@@ -104,277 +53,204 @@ export default function ReadPage() {
   const [error, setError] = useState<string | null>(null);
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [theme, setTheme] = useState<Theme>("light");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [showControls, setShowControls] = useState(true);
-  const [showSettings, setShowSettings] = useState(true); // Always show on open
+  const [uiVisible, setUiVisible] = useState(false);   // começa oculto no mobile
+  const [showSettings, setShowSettings] = useState(false);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
-  const hideControlsTimeout = useRef<number | null>(null);
 
-  // Refs
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Progresso (0–100)
+  const [progress, setProgress] = useState(0);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
   const skipNextSave = useRef(false);
-  const lastTap = useRef<number>(0);
+  const hideTimer = useRef<number | null>(null);
+  const lastTapTime = useRef(0);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Touch swipe state
+  const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
+  const touchStartTime = useRef(0);
 
-  // Carrega metadados + conteúdo
+  // Fullscreen ao montar
+  useEffect(() => { requestFullscreen(); }, []);
+
+  // Carregar livro
   useEffect(() => {
     if (!bookId) return;
-    const controller = new AbortController();
+    const ctrl = new AbortController();
     setLoading(true);
-    setError(null);
     (async () => {
       try {
-        const [bookRes, contentRes] = await Promise.all([
-          fetch(`/api/books/${bookId}`, { signal: controller.signal }),
-          fetch(`/api/books/${bookId}/content`, { signal: controller.signal }),
+        const [br, cr] = await Promise.all([
+          fetch(`/api/books/${bookId}`, { signal: ctrl.signal }),
+          fetch(`/api/books/${bookId}/content`, { signal: ctrl.signal }),
         ]);
-        const bookData = await bookRes.json();
-        const contentData = await contentRes.json();
-        if (!bookRes.ok) throw new Error(bookData.error ?? "Erro");
-        if (!contentRes.ok) throw new Error(contentData.error ?? "Erro");
-        setBook(bookData.book);
-        setData(contentData);
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : "Erro ao carregar livro");
+        const bd = await br.json();
+        const cd = await cr.json();
+        if (!br.ok) throw new Error(bd.error ?? "Erro");
+        if (!cr.ok) throw new Error(cd.error ?? "Erro");
+        setBook(bd.book);
+        setData(cd);
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") return;
+        setError(e instanceof Error ? e.message : "Erro ao carregar livro");
       } finally {
         setLoading(false);
       }
     })();
-    return () => controller.abort();
+    return () => ctrl.abort();
   }, [bookId]);
 
-  // HTML combinado
-  const fullHtml = useMemo(() => {
-    if (!data) return "";
-    return combineChapters(data.chapters);
-  }, [data]);
+  const fullHtml = useMemo(() => (data ? combineChapters(data.chapters) : ""), [data]);
 
-  /**
-   * Carrega a posição guardada em cache (se existir) DEPOIS do conteúdo estar pronto.
-   * Só aplica se a cache corresponder ao bookId atual.
-   */
+  // Restaurar posição
   useEffect(() => {
-    if (!data || !scrollContainerRef.current) return;
-    if (restoredFromCache) return; // já restaurou
-
+    if (!data || !scrollRef.current || restoredFromCache) return;
     try {
       const raw = localStorage.getItem(CACHE_PREFIX + bookId);
       if (raw) {
-        const cached = JSON.parse(raw) as { scrollTop: number; timestamp: number };
-        // Só restaura se foi nas últimas 4 semanas
-        const fourWeeks = 4 * 7 * 24 * 60 * 60 * 1000;
-        if (Date.now() - cached.timestamp < fourWeeks) {
-          skipNextSave.current = true; // não guardar de volta imediatamente
-          scrollContainerRef.current.scrollTo({ top: cached.scrollTop, behavior: "auto" });
+        const c = JSON.parse(raw) as { scrollTop: number; timestamp: number };
+        if (Date.now() - c.timestamp < 4 * 7 * 24 * 60 * 60 * 1000) {
+          skipNextSave.current = true;
+          scrollRef.current.scrollTo({ top: c.scrollTop, behavior: "auto" });
           setRestoredFromCache(true);
         }
       }
-    } catch {
-      // localStorage indisponível, ignora
-    }
+    } catch {}
   }, [data, bookId, restoredFromCache]);
 
-  /**
-   * Guarda a posição no localStorage sempre que o utilizador faz scroll.
-   * Debounce de 500ms para não escrever excessivamente.
-   */
+  // Guardar posição + calcular progresso
   useEffect(() => {
     if (!data) return;
-    const el = scrollContainerRef.current;
+    const el = scrollRef.current;
     if (!el) return;
+    let t: number | null = null;
 
-    let timeout: number | null = null;
     const onScroll = () => {
-      if (skipNextSave.current) {
-        skipNextSave.current = false;
-        return;
-      }
-      if (timeout) window.clearTimeout(timeout);
-      timeout = window.setTimeout(() => {
+      // Progresso
+      const max = el.scrollHeight - el.clientHeight;
+      if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
+
+      if (skipNextSave.current) { skipNextSave.current = false; return; }
+      if (t) window.clearTimeout(t);
+      t = window.setTimeout(() => {
         try {
-          localStorage.setItem(
-            CACHE_PREFIX + bookId,
-            JSON.stringify({
-              scrollTop: el.scrollTop,
-              timestamp: Date.now(),
-            }),
-          );
-        } catch {
-          // localStorage cheio ou indisponível
-        }
+          localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() }));
+        } catch {}
       }, 500);
     };
 
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => {
-      el.removeEventListener("scroll", onScroll);
-      if (timeout) window.clearTimeout(timeout);
-    };
+    return () => { el.removeEventListener("scroll", onScroll); if (t) window.clearTimeout(t); };
   }, [data, bookId]);
 
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch((e) => {
-        console.error(`Error attempting to enable fullscreen mode: ${e.message}`);
-      });
-      setIsFullscreen(true);
-    } else {
-      if (document.exitFullscreen) {
-        document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", handler);
-    return () => document.removeEventListener("fullscreenchange", handler);
-  }, []);
-
-  useEffect(() => {
-    if (mounted && isTouchDevice) {
-      document.documentElement.requestFullscreen().catch(() => {});
-    }
-  }, [mounted, isTouchDevice]);
-
-  /**
-   * Ao fechar (X ou Esc), guarda a posição final antes de sair.
-   */
-  const handleClose = useCallback(() => {
-    const el = scrollContainerRef.current;
+  const saveAndClose = useCallback(() => {
+    const el = scrollRef.current;
     if (el) {
-      try {
-        localStorage.setItem(
-          CACHE_PREFIX + bookId,
-          JSON.stringify({
-            scrollTop: el.scrollTop,
-            timestamp: Date.now(),
-          }),
-        );
-      } catch {
-        // ignora
-      }
+      try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() })); } catch {}
     }
+    try { if (document.exitFullscreen) document.exitFullscreen(); } catch {}
     router.back();
   }, [bookId, router]);
 
-  /**
-   * Avança 1 PÁGINA COMPLETA (altura visível).
-   * Ajustamos para não cortar linhas a meio, arredondando para baixo pelo line-height.
-   */
-  const goNextPage = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    const lh = lineHeights[fontSize];
-    const visibleHeight = el.clientHeight;
-    // Quantas linhas cabem no ecrã (aproximadamente)
-    const linesPerPage = Math.floor(visibleHeight / lh);
-    const scrollAmount = linesPerPage * lh;
-
-    el.scrollBy({ top: scrollAmount, behavior: "smooth" });
-  }, [fontSize]);
-
-  const goPrevPage = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const lineHeights: Record<FontSize, number> = {
-      xs: 21,
-      sm: 25,
-      md: 29,
-      lg: 33,
-      xl: 40,
-    };
-    const lh = lineHeights[fontSize];
-    const visibleHeight = el.clientHeight;
-    const linesPerPage = Math.floor(visibleHeight / lh);
-    const scrollAmount = linesPerPage * lh;
-
-    el.scrollBy({ top: -scrollAmount, behavior: "smooth" });
-  }, [fontSize]);
-
-  // Auto-hide
-  const scheduleHideControls = useCallback(() => {
-    if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
-    setShowControls(true);
-    // User wants settings to appear for 4s then hide on open/interaction
-    setShowSettings(true);
-    hideControlsTimeout.current = window.setTimeout(() => {
-      setShowControls(false);
+  // Mostrar UI temporariamente
+  const showUiTemporarily = useCallback(() => {
+    if (hideTimer.current) window.clearTimeout(hideTimer.current);
+    setUiVisible(true);
+    hideTimer.current = window.setTimeout(() => {
+      setUiVisible(false);
       setShowSettings(false);
     }, 4000);
   }, []);
 
+  // Teclado
   useEffect(() => {
-    if (mounted) {
-      scheduleHideControls();
-    }
-    return () => {
-      if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return saveAndClose();
+      const el = scrollRef.current;
+      if (!el) return;
+      if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); el.scrollBy({ top: el.clientHeight * 0.9, behavior: "smooth" }); }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); el.scrollBy({ top: -el.clientHeight * 0.9, behavior: "smooth" }); }
     };
-  }, [mounted, scheduleHideControls]);
-
-  // Atalhos
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (showSettings) return;
-      if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        goPrevPage();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        goNextPage();
-      } else if (e.key === "Escape") {
-        handleClose();
-      }
-    }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [showSettings, goPrevPage, goNextPage, handleClose]);
+  }, [saveAndClose]);
 
-  const handleTap = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTap.current < 300) {
-      // Double tap toggles both
-      setShowControls((v) => !v);
-      setShowSettings((v) => !v);
-      if (hideControlsTimeout.current) window.clearTimeout(hideControlsTimeout.current);
-    } else {
-      scheduleHideControls();
+  // ── HANDLERS de TOQUE ──
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const t = e.touches[0];
+    touchStartX.current = t.clientX;
+    touchStartY.current = t.clientY;
+    touchStartTime.current = Date.now();
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStartX.current;
+    const dy = t.clientY - touchStartY.current;
+    const dt = Date.now() - touchStartTime.current;
+    const el = scrollRef.current;
+
+    // ── Swipe horizontal para virar página ──
+    if (Math.abs(dx) > SWIPE_MIN_X && Math.abs(dy) < SWIPE_MAX_Y && dt < 400) {
+      e.preventDefault();
+      if (!el) return;
+      if (dx < 0) {
+        // swipe esquerda → próxima página
+        el.scrollBy({ top: el.clientHeight * 0.9, behavior: "smooth" });
+      } else {
+        // swipe direita → página anterior
+        el.scrollBy({ top: -el.clientHeight * 0.9, behavior: "smooth" });
+      }
+      return;
     }
-    lastTap.current = now;
-  }, [scheduleHideControls]);
 
-  const currentTheme = THEMES[theme];
+    // ── Double tap → toggle UI ──
+    const now = Date.now();
+    if (now - lastTapTime.current < DOUBLE_TAP_MS) {
+      e.preventDefault();
+      if (hideTimer.current) window.clearTimeout(hideTimer.current);
+      setUiVisible((v) => { if (v) setShowSettings(false); return !v; });
+      lastTapTime.current = 0;
+      return;
+    }
+    lastTapTime.current = now;
 
-  // ============== RENDERS ==============
+    // ── Toque simples: metade esquerda/direita → virar página ──
+    // Só actua se não for na zona do texto com scroll
+    const W = window.innerWidth;
+    const tapX = t.clientX;
+    const tapY = t.clientY;
+    const H = window.innerHeight;
 
-  if (!mounted) return null;
+    // Ignora toques na faixa central (40%) e no topo/fundo (UI)
+    const inTopBar = tapY < 80;
+    const inBottomBar = tapY > H - 60;
+    const inCenterZone = tapX > W * 0.3 && tapX < W * 0.7;
 
+    if (inTopBar || inBottomBar || !el) return;
+
+    if (tapX < W * 0.3) {
+      // Terço esquerdo → página anterior
+      el.scrollBy({ top: -el.clientHeight * 0.9, behavior: "smooth" });
+    } else if (tapX > W * 0.7) {
+      // Terço direito → página seguinte
+      el.scrollBy({ top: el.clientHeight * 0.9, behavior: "smooth" });
+    } else {
+      // Centro → mostrar UI temporariamente
+      showUiTemporarily();
+    }
+  }, [showUiTemporarily]);
+
+  const T = THEMES[theme];
+
+  // ── LOADING / ERROR ──
   if (loading) {
     return (
-      <div
-        className="flex min-h-screen items-center justify-center"
-        style={{ backgroundColor: currentTheme.background }}
-      >
+      <div className="flex h-screen w-screen items-center justify-center" style={{ backgroundColor: T.bg }}>
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="animate-spin" size={32} color={currentTheme.accent} />
-          <p className="text-sm font-bold uppercase tracking-widest" style={{ color: currentTheme.accent }}>
-            A abrir o livro...
-          </p>
+          <Loader2 className="animate-spin" size={28} color={T.accent} />
+          <p className="text-xs font-bold uppercase tracking-widest" style={{ color: T.accent }}>A abrir…</p>
         </div>
       </div>
     );
@@ -382,25 +258,17 @@ export default function ReadPage() {
 
   if (error || !data || !book) {
     return (
-      <div
-        className="flex min-h-screen items-center justify-center p-6"
-        style={{ backgroundColor: currentTheme.background }}
-      >
-        <div className="max-w-md text-center">
-          <BookOpen className="mx-auto mb-4" size={44} strokeWidth={1.4} color={currentTheme.accent} />
-          <h1 className="font-display-lg text-2xl font-bold" style={{ color: currentTheme.text }}>
-            Nao foi possivel abrir o livro
-          </h1>
-          <p className="mt-3 text-sm" style={{ color: currentTheme.accent }}>
-            {error ?? "Erro desconhecido"}
-          </p>
+      <div className="flex h-screen w-screen items-center justify-center p-6" style={{ backgroundColor: T.bg }}>
+        <div className="max-w-sm text-center">
+          <BookOpen size={40} strokeWidth={1.4} color={T.accent} className="mx-auto mb-4" />
+          <h1 className="text-xl font-bold" style={{ color: T.text }}>Não foi possível abrir</h1>
+          <p className="mt-2 text-sm" style={{ color: T.accent }}>{error ?? "Erro desconhecido"}</p>
           <button
             onClick={() => router.back()}
-            className="mt-6 inline-flex h-10 items-center gap-2 rounded px-5 text-xs font-bold uppercase tracking-wider transition"
-            style={{ backgroundColor: currentTheme.text, color: currentTheme.pageColor }}
+            className="mt-6 inline-flex items-center gap-2 rounded-full px-6 py-3 text-sm font-bold"
+            style={{ backgroundColor: T.text, color: T.page }}
           >
-            <ArrowLeft size={16} />
-            Voltar
+            <ArrowLeft size={16} /> Voltar
           </button>
         </div>
       </div>
@@ -408,288 +276,225 @@ export default function ReadPage() {
   }
 
   return (
-    <motion.div
-      className="relative flex h-screen w-screen flex-col overflow-hidden"
-      style={{ backgroundColor: currentTheme.background }}
-      onMouseMove={scheduleHideControls}
-      onTap={handleTap}
-      drag="x"
-      dragConstraints={{ left: 0, right: 0 }}
-      dragElastic={0.2}
-      onDragEnd={(_, info) => {
-        const threshold = 50;
-        if (info.offset.x < -threshold) {
-          goNextPage();
-        } else if (info.offset.x > threshold) {
-          goPrevPage();
-        }
-      }}
+    <div
+      className="relative h-screen w-screen overflow-hidden select-none"
+      style={{ backgroundColor: T.bg }}
     >
-      {/* HEADER */}
+      {/* ════════════════════════════════
+          BARRA SUPERIOR — só visível quando uiVisible
+      ════════════════════════════════ */}
       <AnimatePresence>
-        {showControls && (
-          <motion.header
-            initial={{ opacity: 0, y: -16 }}
+        {uiVisible && (
+          <motion.div
+            initial={{ opacity: 0, y: -48 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -16 }}
-            className={`${isTouchDevice ? "relative" : "fixed inset-x-0 top-0"} z-30 px-4 py-3 md:px-8`}
+            exit={{ opacity: 0, y: -48 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-3 px-4 py-3"
             style={{
-              backgroundColor: isTouchDevice ? currentTheme.background : `${currentTheme.background}f2`,
-              backdropFilter: isTouchDevice ? "none" : "blur(12px)",
-              paddingTop: isTouchDevice ? "env(safe-area-inset-top)" : "0.75rem",
+              paddingTop: `calc(0.75rem + env(safe-area-inset-top, 0px))`,
+              background: `linear-gradient(to bottom, ${T.bg}f5 0%, ${T.bg}00 100%)`,
             }}
           >
-            <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
-              <div className="flex min-w-0 items-center gap-3">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (isTouchDevice) {
-                      setShowControls(false);
-                      setShowSettings(false);
-                    } else {
-                      handleClose();
-                    }
-                  }}
-                  className="flex h-9 w-9 items-center justify-center rounded border transition"
-                  style={{ borderColor: currentTheme.accent, color: currentTheme.text }}
-                  aria-label={isTouchDevice ? "Ocultar menu" : "Fechar e guardar posicao"}
-                  title={isTouchDevice ? "Ocultar menu" : "Fechar (guarda a posicao)"}
-                >
-                  <X size={18} />
-                </button>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold" style={{ color: currentTheme.text }}>
-                    {book.title}
-                  </p>
-                  <p className="truncate text-xs" style={{ color: currentTheme.accent }}>
-                    {book.author ?? "Autor desconhecido"}
-                    {restoredFromCache && " · Posicao restaurada"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {isTouchDevice && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
-                    className="flex h-9 w-9 items-center justify-center rounded border transition"
-                    style={{ borderColor: currentTheme.accent, color: currentTheme.text }}
-                    aria-label="Fullscreen"
-                  >
-                    {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                  </button>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowSettings((v) => !v); }}
-                  className="flex h-9 w-9 items-center justify-center rounded border transition"
-                  style={{
-                    borderColor: currentTheme.accent,
-                    color: showSettings ? currentTheme.pageColor : currentTheme.text,
-                    backgroundColor: showSettings ? currentTheme.text : "transparent",
-                  }}
-                  aria-label="Definicoes"
-                >
-                  <Type size={16} />
-                </button>
-                {isTouchDevice && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleClose(); }}
-                    className="flex h-9 w-9 items-center justify-center rounded border transition bg-error/10 border-error/50 text-error"
-                    aria-label="Sair"
-                  >
-                    <ArrowLeft size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <AnimatePresence>
-              {showSettings && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8, height: 0 }}
-                  animate={{ opacity: 1, y: 0, height: "auto" }}
-                  exit={{ opacity: 0, y: -8, height: 0 }}
-                  className="mx-auto mt-3 max-w-5xl overflow-hidden"
-                >
-                  <div
-                    className="rounded-lg p-4"
-                    style={{ backgroundColor: currentTheme.pageColor, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div>
-                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: currentTheme.accent }}>
-                          Tamanho da letra
-                        </p>
-                        <div className="flex gap-1">
-                          {(Object.keys(FONT_SIZE_CLASS) as FontSize[]).map((size) => (
-                            <button
-                              key={size}
-                              onClick={() => setFontSize(size)}
-                              className="flex h-9 min-w-[44px] items-center justify-center rounded border px-3 text-xs font-bold transition"
-                              style={{
-                                borderColor: currentTheme.accent,
-                                backgroundColor: fontSize === size ? currentTheme.text : "transparent",
-                                color: fontSize === size ? currentTheme.pageColor : currentTheme.text,
-                              }}
-                            >
-                              {FONT_SIZE_LABELS[size]}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: currentTheme.accent }}>
-                          Tema
-                        </p>
-                        <div className="flex gap-1">
-                          {(Object.keys(THEMES) as Theme[]).map((t) => (
-                            <button
-                              key={t}
-                              onClick={() => setTheme(t)}
-                              className="flex h-9 items-center gap-2 rounded border px-3 text-xs font-bold transition"
-                              style={{
-                                borderColor: currentTheme.accent,
-                                backgroundColor: theme === t ? currentTheme.text : "transparent",
-                                color: theme === t ? THEMES[t].pageColor : currentTheme.text,
-                              }}
-                            >
-                              <span
-                                className="h-4 w-4 rounded-full border"
-                                style={{ backgroundColor: THEMES[t].pageColor, borderColor: currentTheme.accent }}
-                              />
-                              {THEMES[t].label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      className="mt-3 flex items-center justify-between border-t pt-3 text-[10px] font-bold uppercase tracking-widest"
-                      style={{ borderColor: currentTheme.accent, color: currentTheme.accent }}
-                    >
-                      <span>←/→ Pagina &nbsp;·&nbsp; ↑/↓ Linha &nbsp;·&nbsp; Esc Fechar</span>
-                      <button
-                        onClick={() => {
-                          try {
-                            localStorage.removeItem(CACHE_PREFIX + bookId);
-                            setRestoredFromCache(false);
-                          } catch {}
-                        }}
-                        className="underline"
-                      >
-                        Limpar posicao guardada
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.header>
-        )}
-      </AnimatePresence>
-
-      {/* SETA ESQUERDA — Página anterior */}
-      <AnimatePresence>
-        {showControls && !isTouchDevice && (
-          <motion.button
-            initial={{ opacity: 0, x: -8 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -8 }}
-            onClick={(e) => { e.stopPropagation(); goPrevPage(); }}
-            className={`fixed z-20 flex items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 ${
-              isTouchDevice ? "bottom-4 left-4 h-12 w-12" : "left-3 top-1/2 -translate-y-1/2 h-12 w-12 md:left-6 md:h-14 md:w-14"
-            }`}
-            style={{
-              backgroundColor: `${currentTheme.pageColor}ee`,
-              borderColor: currentTheme.accent,
-              color: currentTheme.text,
-              bottom: isTouchDevice ? "calc(1rem + env(safe-area-inset-bottom))" : undefined,
-            }}
-            aria-label="Pagina anterior (←)"
-            title="Pagina anterior"
-          >
-            <ChevronLeft size={22} strokeWidth={1.5} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* SETA DIREITA — Próxima página */}
-      <AnimatePresence>
-        {showControls && !isTouchDevice && (
-          <motion.button
-            initial={{ opacity: 0, x: 8 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 8 }}
-            onClick={(e) => { e.stopPropagation(); goNextPage(); }}
-            className={`fixed z-20 flex items-center justify-center rounded-full border shadow-2xl transition hover:scale-110 ${
-              isTouchDevice ? "bottom-4 right-4 h-12 w-12" : "right-3 top-1/2 -translate-y-1/2 h-12 w-12 md:right-6 md:h-14 md:w-14"
-            }`}
-            style={{
-              backgroundColor: `${currentTheme.pageColor}ee`,
-              borderColor: currentTheme.accent,
-              color: currentTheme.text,
-              bottom: isTouchDevice ? "calc(1rem + env(safe-area-inset-bottom))" : undefined,
-            }}
-            aria-label="Pagina seguinte (→)"
-            title="Pagina seguinte"
-          >
-            <ChevronRight size={22} strokeWidth={1.5} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* A "FOLHA" — 1 página com scroll vertical */}
-      <div
-        className={`flex w-full items-center justify-center ${
-          isTouchDevice ? "flex-1 overflow-hidden" : "h-full px-3 pt-20 pb-6 md:px-8 md:pt-24 md:pb-10"
-        }`}
-      >
-        <div
-          className={`relative h-full w-full overflow-hidden ${
-            isTouchDevice ? "" : "max-h-[860px] rounded-lg"
-          }`}
-          style={{
-            maxWidth: isTouchDevice ? "100%" : "min(960px, calc(100vw - 2rem))",
-            boxShadow: isTouchDevice
-              ? "none"
-              : "0 25px 50px -12px rgba(0,0,0,0.25), 0 0 0 1px rgba(0,0,0,0.05), inset 0 0 60px rgba(0,0,0,0.04)",
-          }}
-        >
-          <div
-            ref={scrollContainerRef}
-            className={`prose-book h-full ${isTouchDevice ? "overflow-hidden" : "overflow-y-auto"}`}
-            style={{
-              backgroundColor: currentTheme.pageColor,
-              color: currentTheme.text,
-              // MUDANÇA 1+2: Margens superior/inferior GRANDES, laterais também generosas
-              padding: isTouchDevice ? "2rem 1.5rem" : "5rem 3.5rem",
-              scrollbarWidth: "thin",
-              scrollbarColor: `${currentTheme.accent} transparent`,
-            }}
-          >
-            <div
-              dangerouslySetInnerHTML={{ __html: fullHtml }}
-              className={FONT_SIZE_CLASS[fontSize]}
-            />
-
-            {/* Fim */}
-            <div
-              className="mt-20 flex flex-col items-center gap-2 border-t pt-12"
-              style={{ borderColor: currentTheme.accent }}
+            {/* Fechar */}
+            <button
+              onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
+              className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
+              style={{ backgroundColor: T.page, color: T.text, border: `1px solid ${T.accent}30` }}
+              aria-label="Fechar"
             >
-              <BookOpen size={28} strokeWidth={1.4} color={currentTheme.accent} />
-              <p
-                className="text-[10px] font-bold uppercase tracking-widest"
-                style={{ color: currentTheme.accent }}
-              >
-                Fim
-              </p>
+              <X size={18} />
+            </button>
+
+            {/* Autor (discreto) */}
+            <span
+              className="min-w-0 truncate text-center text-xs font-medium"
+              style={{ color: T.accent }}
+            >
+              {book.author ?? ""}
+            </span>
+
+            {/* Definições */}
+            <button
+              onPointerDown={(e) => { e.stopPropagation(); setShowSettings(v => !v); showUiTemporarily(); }}
+              className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
+              style={{
+                backgroundColor: showSettings ? T.text : T.page,
+                color: showSettings ? T.page : T.text,
+                border: `1px solid ${T.accent}30`,
+              }}
+              aria-label="Definições"
+            >
+              <Settings2 size={17} />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ════════════════════════════════
+          PAINEL DE DEFINIÇÕES
+      ════════════════════════════════ */}
+      <AnimatePresence>
+        {uiVisible && showSettings && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-x-3 z-30 rounded-2xl p-4 shadow-2xl"
+            style={{
+              top: `calc(4rem + env(safe-area-inset-top, 0px))`,
+              backgroundColor: T.page,
+              border: `1px solid ${T.accent}20`,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {/* Tamanho da letra */}
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
+              Tamanho da letra
+            </p>
+            <div className="mb-4 flex gap-2">
+              {(Object.keys(FONT_SIZE_CLASS) as FontSize[]).map((s) => (
+                <button
+                  key={s}
+                  onPointerDown={() => setFontSize(s)}
+                  className="flex h-11 flex-1 items-center justify-center rounded-xl text-sm font-bold transition-colors active:scale-95"
+                  style={{
+                    backgroundColor: fontSize === s ? T.text : `${T.accent}15`,
+                    color: fontSize === s ? T.page : T.text,
+                  }}
+                >
+                  {FONT_SIZE_LABELS[s]}
+                </button>
+              ))}
             </div>
-          </div>
+
+            {/* Temas */}
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
+              Tema
+            </p>
+            <div className="flex gap-2">
+              {(Object.keys(THEMES) as Theme[]).map((t) => (
+                <button
+                  key={t}
+                  onPointerDown={() => setTheme(t)}
+                  title={THEMES[t].label}
+                  className="flex h-11 flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[10px] font-bold transition-all active:scale-95"
+                  style={{
+                    backgroundColor: THEMES[t].page,
+                    color: THEMES[t].text,
+                    border: theme === t ? `2px solid ${T.text}` : `1px solid ${T.accent}20`,
+                    boxShadow: theme === t ? `0 0 0 2px ${T.bg}` : "none",
+                  }}
+                >
+                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: THEMES[t].text }} />
+                  {THEMES[t].label}
+                </button>
+              ))}
+            </div>
+
+            {/* Dica e limpar */}
+            <div
+              className="mt-4 flex items-center justify-between border-t pt-3 text-[10px]"
+              style={{ borderColor: `${T.accent}25`, color: T.accent }}
+            >
+              <span>2× toque · swipe · toque esq/dir</span>
+              <button
+                onPointerDown={() => {
+                  try { localStorage.removeItem(CACHE_PREFIX + bookId); setRestoredFromCache(false); } catch {}
+                }}
+                className="font-bold underline underline-offset-2"
+              >
+                Limpar posição
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ════════════════════════════════
+          BARRA DE PROGRESSO (sempre visível, muito fina)
+      ════════════════════════════════ */}
+      <div
+        className="fixed inset-x-0 top-0 z-50 h-[2px]"
+        style={{ backgroundColor: `${T.accent}20` }}
+      >
+        <motion.div
+          className="h-full"
+          style={{ backgroundColor: T.accent }}
+          animate={{ width: `${progress}%` }}
+          transition={{ duration: 0.3, ease: "linear" }}
+        />
+      </div>
+
+      {/* ════════════════════════════════
+          CONTEÚDO DO LIVRO
+      ════════════════════════════════ */}
+      <div
+        ref={scrollRef}
+        className="prose-book h-full w-full overflow-y-auto overscroll-none"
+        style={{
+          backgroundColor: T.page,
+          color: T.text,
+          // Padding generoso: topo/fundo com safe-area, laterais confortáveis
+          paddingTop: "calc(3.5rem + env(safe-area-inset-top, 0px))",
+          paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))",
+          paddingLeft: "clamp(1.25rem, 5vw, 3rem)",
+          paddingRight: "clamp(1.25rem, 5vw, 3rem)",
+          scrollbarWidth: "none",
+          WebkitOverflowScrolling: "touch",
+        } as React.CSSProperties}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        <style>{`.prose-book::-webkit-scrollbar { display: none; }`}</style>
+
+        <div
+          dangerouslySetInnerHTML={{ __html: fullHtml }}
+          className={`${FONT_SIZE_CLASS[fontSize]} select-text`}
+          style={{ maxWidth: "65ch", margin: "0 auto" }}
+        />
+
+        {/* Fim do livro */}
+        <div
+          className="mx-auto mt-24 flex max-w-[65ch] flex-col items-center gap-3 border-t py-16"
+          style={{ borderColor: `${T.accent}30` }}
+        >
+          <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
+          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
+            Fim
+          </p>
+          {restoredFromCache && (
+            <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>
+          )}
         </div>
       </div>
-    </motion.div>
+
+      {/* ════════════════════════════════
+          BARRA INFERIOR DE PROGRESSO (só quando UI visível)
+      ════════════════════════════════ */}
+      <AnimatePresence>
+        {uiVisible && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between px-5 py-3"
+            style={{
+              paddingBottom: `calc(0.75rem + env(safe-area-inset-bottom, 0px))`,
+              background: `linear-gradient(to top, ${T.bg}f5 0%, ${T.bg}00 100%)`,
+            }}
+          >
+            <span className="text-[11px] font-bold" style={{ color: T.accent }}>
+              {book.author ?? ""}
+            </span>
+            <span className="text-[11px] font-bold tabular-nums" style={{ color: T.accent }}>
+              {progress}%
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
