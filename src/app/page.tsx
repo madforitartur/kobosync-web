@@ -895,14 +895,14 @@ export default function Home() {
                               coverUrl={book.cover_url}
                               title={book.title}
                               isSelected={selectedIds.has(book.id)}
-                              selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+                              selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
                               checkSize={16}
                             />
                           ) : (
                             <div className="relative">
                               <BookCoverPlaceholder title={book.title} />
                               {selectedIds.has(book.id) && (
-                                <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
+                                <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary">
                                   <Check size={16} />
                                 </div>
                               )}
@@ -922,7 +922,7 @@ export default function Home() {
                         <button
                           onClick={(e) => handleBookAction(book, e)}
                           aria-label="Ações do livro"
-                          className="absolute right-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background/90 text-on-surface-variant opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
+                          className="absolute right-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background text-on-surface-variant opacity-0 transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
                         >
                           <BookOpen size={16} />
                         </button>
@@ -1111,7 +1111,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
               coverUrl={book.cover_url}
               title={book.title}
               isSelected={isSelected}
-              selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background"
+              selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
               checkSize={11}
             />
           ) : (
@@ -1125,7 +1125,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
                 </div>
               </div>
               {isSelected && (
-                <div className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg ring-2 ring-background">
+                <div className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary">
                   <Check size={11} />
                 </div>
               )}
@@ -1143,7 +1143,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
       {/* Botão de ação rápida */}
       <button
         onClick={onActionPress}
-        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 text-on-surface-variant shadow backdrop-blur-sm"
+        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-background text-on-surface-variant"
         aria-label="Mais opções"
       >
         <BookOpen size={11} />
