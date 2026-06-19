@@ -23,12 +23,15 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { useIsTouchDevice } from "@/hooks/useDeviceType";
 import type { Book } from "@/types/library";
 
-// Remove prefixos numéricos ("001_", "12. ", "03 - ") e underscores dos títulos dos livros
+// Limpa títulos de livros: remove prefixos numéricos, #N, underscores
 function cleanBookTitle(raw: string): string {
   return raw
-    .replace(/^[\d]+[\s._\-–]+/, "")   // prefixo numérico: "001_", "12. ", "03 - "
-    .replace(/_/g, " ")                 // underscores → espaços
-    .replace(/\s{2,}/g, " ")           // espaços duplos → simples
+    .replace(/^#?\d+[\s._\-–:]+/, "")  // "#4 ", "4. ", "004_", "4 - ", "4: "
+    .replace(/^#\d+\s*/, "")            // "#4" sozinho no início
+    .replace(/#\d+\s*/g, "")            // "#4" em qualquer posição restante
+    .replace(/_/g, " ")                  // underscores → espaços
+    .replace(/\s{2,}/g, " ")            // espaços duplos → simples
+    .replace(/\s*[-–]\s*(\.{2,})?$/, "") // traço/dash no final "Título -" ou "Título -..."
     .trim();
 }
 
@@ -1142,9 +1145,13 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
             </div>
           )}
         </div>
-        <p className="mt-1.5 line-clamp-2 text-[11px] font-bold leading-tight text-primary">
-          {cleanBookTitle(book.title)}
-        </p>
+        {/* Título: sempre 2 linhas (min-h garante espaço mesmo título curto) */}
+        <div className="mt-1.5 min-h-[2.2rem]">
+          <p className="line-clamp-2 text-[11px] font-bold leading-tight text-primary">
+            {cleanBookTitle(book.title)}
+          </p>
+        </div>
+        {/* Autor: sempre na 3.ª linha */}
         <p className="mt-0.5 line-clamp-1 text-[10px] text-on-surface-variant">
           {book.author ?? "–"}
         </p>
