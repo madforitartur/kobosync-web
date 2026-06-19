@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, BookOpen, Loader2, Settings2, X } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
+import { useDeviceType } from "@/hooks/useDeviceType";
 
 type Chapter = { id: string; title: string; html: string };
 type ReadData = { title: string; chapters: Chapter[] };
@@ -54,20 +55,21 @@ async function requestFullscreen() {
 // ── CSS da animação de viragem de página (page curl) injectado globalmente ──
 const CURL_CSS = `
 @keyframes pageCurlNext {
-  0%   { transform: perspective(1200px) rotateY(0deg); transform-origin: left center; opacity: 1; }
-  100% { transform: perspective(1200px) rotateY(-90deg); transform-origin: left center; opacity: 0; }
+  0%   { transform: perspective(1500px) rotateY(0deg); transform-origin: left center; opacity: 1; filter: brightness(1); }
+  100% { transform: perspective(1500px) rotateY(-180deg); transform-origin: left center; opacity: 0; filter: brightness(0.8); }
 }
 @keyframes pageCurlPrev {
-  0%   { transform: perspective(1200px) rotateY(0deg); transform-origin: right center; opacity: 1; }
-  100% { transform: perspective(1200px) rotateY(90deg);  transform-origin: right center; opacity: 0; }
+  0%   { transform: perspective(1500px) rotateY(0deg); transform-origin: right center; opacity: 1; filter: brightness(1); }
+  100% { transform: perspective(1500px) rotateY(180deg);  transform-origin: right center; opacity: 0; filter: brightness(0.8); }
 }
-.curl-exit-next { animation: pageCurlNext 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
-.curl-exit-prev { animation: pageCurlPrev 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
+.curl-exit-next { animation: pageCurlNext 0.6s cubic-bezier(0.645, 0.045, 0.355, 1) forwards; }
+.curl-exit-prev { animation: pageCurlPrev 0.6s cubic-bezier(0.645, 0.045, 0.355, 1) forwards; }
 `;
 
 export default function ReadPage() {
   const params = useParams();
   const router = useRouter();
+  const deviceType = useDeviceType();
   const bookId = String(params.id ?? "");
 
   const [book, setBook] = useState<Book | null>(null);
@@ -154,10 +156,12 @@ export default function ReadPage() {
     try {
       const raw = localStorage.getItem(CACHE_PREFIX + bookId);
       if (raw) {
-        const c = JSON.parse(raw) as { scrollTop: number; timestamp: number };
+        // We might have old 'scrollTop' or new 'scrollLeft' keys
+        const c = JSON.parse(raw);
+        const pos = c.scrollLeft ?? c.scrollTop ?? 0;
         if (Date.now() - c.timestamp < 4 * 7 * 24 * 60 * 60 * 1000) {
           skipNextSave.current = true;
-          scrollRef.current.scrollTo({ top: c.scrollTop, behavior: "auto" });
+          scrollRef.current.scrollTo({ left: pos, behavior: "auto" });
           setRestoredFromCache(true);
         }
       }
@@ -171,12 +175,12 @@ export default function ReadPage() {
     if (!el) return;
     let t: number | null = null;
     const onScroll = () => {
-      const max = el.scrollHeight - el.clientHeight;
-      if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
+      const max = el.scrollWidth - el.clientWidth;
+      if (max > 0) setProgress(Math.min(100, Math.round((el.scrollLeft / max) * 100)));
       if (skipNextSave.current) { skipNextSave.current = false; return; }
       if (t) window.clearTimeout(t);
       t = window.setTimeout(() => {
-        try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() })); } catch {}
+        try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollLeft: el.scrollLeft, timestamp: Date.now() })); } catch {}
       }, 500);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -186,43 +190,55 @@ export default function ReadPage() {
   const saveAndClose = useCallback(() => {
     const el = scrollRef.current;
     if (el) {
-      try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() })); } catch {}
+      try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollLeft: el.scrollLeft, timestamp: Date.now() })); } catch {}
     }
     try { if (document.exitFullscreen) document.exitFullscreen(); } catch {}
     router.back();
   }, [bookId, router]);
 
-  const showUiTemporarily = useCallback(() => {
+  const showUiTemporarily = useCallback((forceKeepOpen?: boolean) => {
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     setUiVisible(true);
+
+    if (showSettings || forceKeepOpen) return;
+
     hideTimer.current = window.setTimeout(() => {
       setUiVisible(false);
       setShowSettings(false);
     }, 4000);
-  }, []);
+  }, [showSettings]);
 
   // ── Navegar com animação ──
   const navigate = useCallback((direction: "next" | "prev") => {
     const el = scrollRef.current;
     if (!el) return;
-    const delta = el.clientHeight * 0.9;
+
+    const delta = el.clientWidth;
 
     if (pageAnim === "curl") {
       const cls = direction === "next" ? "curl-exit-next" : "curl-exit-prev";
       setCurlClass(cls);
       setTimeout(() => {
-        el.scrollBy({ top: direction === "next" ? delta : -delta, behavior: "auto" });
+        el.scrollBy({ left: direction === "next" ? delta : -delta, behavior: "auto" });
         setCurlClass("");
-      }, 420);
+      }, 600);
     } else {
-      el.scrollBy({ top: direction === "next" ? delta : -delta, behavior: pageAnim === "none" ? "auto" : "smooth" });
+      const behavior = pageAnim === "none" ? "auto" : "smooth";
+      el.scrollBy({ left: direction === "next" ? delta : -delta, behavior });
     }
   }, [pageAnim]);
 
   // ── Teclado ──
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return saveAndClose();
+      if (e.key === "Escape") {
+        if (showSettings) {
+          setShowSettings(false);
+          setUiVisible(false);
+          return;
+        }
+        return saveAndClose();
+      }
       const el = scrollRef.current;
       if (!el) return;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigate("next"); }
@@ -230,7 +246,7 @@ export default function ReadPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveAndClose, navigate]);
+  }, [saveAndClose, navigate, showSettings]);
 
   // ── Touch handlers ──
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
@@ -269,6 +285,8 @@ export default function ReadPage() {
     const H = window.innerHeight;
     const tapX = t.clientX;
     const tapY = t.clientY;
+
+    if (showSettings) return;
     if (tapY < 80 || tapY > H - 60) return;
 
     if (tapX < W * 0.3)      navigate("prev");
@@ -365,7 +383,12 @@ export default function ReadPage() {
               {book.author ?? ""}
             </span>
             <button
-              onPointerDown={(e) => { e.stopPropagation(); setShowSettings(v => !v); showUiTemporarily(); }}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                const next = !showSettings;
+                setShowSettings(next);
+                showUiTemporarily(next);
+              }}
               className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
               style={{
                 backgroundColor: showSettings ? T.text : T.page,
@@ -384,18 +407,26 @@ export default function ReadPage() {
       <AnimatePresence>
         {uiVisible && showSettings && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-x-3 z-30 rounded-2xl p-4 shadow-2xl"
+            initial={{ opacity: 0, scale: 0.95, y: "-40%" }}
+            animate={{ opacity: 1, scale: 1, y: "-50%" }}
+            exit={{ opacity: 0, scale: 0.95, y: "-40%" }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="fixed top-1/2 left-1/2 z-50 w-[90%] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-2xl p-5 shadow-2xl"
             style={{
-              top: `calc(4.5rem + env(safe-area-inset-top, 0px))`,
               backgroundColor: T.page,
-              border: `1px solid ${T.accent}20`,
+              border: `1px solid ${T.accent}30`,
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
+            {/* Botão fechar definições */}
+            <button
+              onClick={() => { setShowSettings(false); setUiVisible(false); }}
+              className="absolute top-4 right-4 flex h-8 w-8 items-center justify-center rounded-full active:scale-90 transition-transform"
+              style={{ backgroundColor: `${T.accent}15`, color: T.text }}
+            >
+              <X size={16} />
+            </button>
+
             {/* Tamanho da letra */}
             <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
               Tamanho da letra
@@ -495,42 +526,91 @@ export default function ReadPage() {
 
       {/* ── CONTEÚDO COM ANIMAÇÃO ── */}
       <div
-        ref={scrollRef}
-        className={`prose-book h-full w-full overflow-y-auto overscroll-none ${curlClass}`}
-        style={{
-          backgroundColor: T.page,
-          color: T.text,
-          paddingTop: "calc(2rem + env(safe-area-inset-top, 0px))",
-          paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))",
-          paddingLeft: "clamp(1.25rem, 5vw, 3rem)",
-          paddingRight: "clamp(1.25rem, 5vw, 3rem)",
-          scrollbarWidth: "none",
-          WebkitOverflowScrolling: "touch",
-          // E-Ink: sem transições de cor, fundo ligeiramente texturado
-          ...(T.eink ? {
-            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.3'/%3E%3C/svg%3E\")",
-            letterSpacing: "0.01em",
-          } : {}),
-        } as React.CSSProperties}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+        className={`flex h-full w-full items-center justify-center ${deviceType === "desktop" ? "p-8" : ""}`}
+        style={{ perspective: "2000px" }}
       >
-        <style>{`.prose-book::-webkit-scrollbar { display: none; }`}</style>
-
         <div
-          dangerouslySetInnerHTML={{ __html: fullHtml }}
-          className={`${FONT_SIZE_CLASS[fontSize]} select-text`}
+          ref={scrollRef}
+          className={`prose-book relative h-full w-full overscroll-none overflow-x-auto snap-x snap-mandatory ${curlClass}`}
           style={{
-            maxWidth: "65ch",
-            margin: "0 auto",
-            // E-Ink: força texto mais bold para melhor legibilidade
-            ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } : {}),
-          }}
-        />
+            backgroundColor: T.page,
+            color: T.text,
+            scrollbarWidth: "none",
+            WebkitOverflowScrolling: "touch",
+            ...(deviceType === "desktop" ? {
+              width: "min(1400px, 95vw)",
+              height: "min(900px, 85vh)",
+              borderRadius: "4px",
+              boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5), 0 0 40px rgba(0,0,0,0.1) inset",
+              transform: "rotateX(2deg)",
+            } : {}),
+            // E-Ink: sem transições de cor, fundo ligeiramente texturado
+            ...(T.eink ? {
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.3'/%3E%3C/svg%3E\")",
+              letterSpacing: "0.01em",
+            } : {}),
+          } as React.CSSProperties}
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
+        >
+          <style>{`
+            .prose-book::-webkit-scrollbar { display: none; }
+            .paginated-content {
+              column-fill: auto;
+              height: 100%;
+              width: 100%;
+            }
+            .paginated-content > * {
+              scroll-snap-align: start;
+              break-inside: avoid-column;
+            }
+            /* Desktop: 2 colunas */
+            @media (min-width: 1024px) {
+              .paginated-content {
+                column-count: 2;
+                column-gap: 80px;
+                padding: 60px 80px;
+              }
+            }
+            /* Mobile: 1 coluna */
+            @media (max-width: 1023px) {
+              .paginated-content {
+                column-width: 100vw;
+                column-gap: 0;
+                padding: calc(2.5rem + env(safe-area-inset-top, 0px)) 1.5rem calc(3.5rem + env(safe-area-inset-bottom, 0px));
+              }
+            }
+          `}</style>
+
+          {/* Sombra central (lombada) apenas em Desktop */}
+          {deviceType === "desktop" && (
+            <div
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{
+                background: `linear-gradient(to right, transparent 48%, rgba(0,0,0,0.08) 49.5%, rgba(0,0,0,0.15) 50%, rgba(0,0,0,0.08) 50.5%, transparent 52%)`,
+              }}
+            />
+          )}
+
+          <div
+            dangerouslySetInnerHTML={{ __html: fullHtml }}
+            className={`${FONT_SIZE_CLASS[fontSize]} select-text paginated-content`}
+            style={{
+              // E-Ink: força texto mais bold para melhor legibilidade
+              ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } : {}),
+            }}
+          />
+
+          {/* Padding para a última página em mobile não ficar colada ao footer */}
+          {deviceType !== "desktop" && <div className="w-[100vw] h-1 shrink-0" />}
 
         <div
-          className="mx-auto mt-24 flex max-w-[65ch] flex-col items-center gap-3 border-t py-16"
-          style={{ borderColor: `${T.accent}30` }}
+          className="mx-auto flex flex-col items-center gap-3 py-16"
+          style={{
+            borderColor: `${T.accent}30`,
+            width: deviceType === "desktop" ? "100%" : "65ch",
+            borderTop: deviceType === "desktop" ? "none" : "1px solid"
+          }}
         >
           <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
           <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>Fim</p>
@@ -538,6 +618,7 @@ export default function ReadPage() {
             <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>
           )}
         </div>
+      </div>
       </div>
 
       {/* ── FOOTER (visível quando uiVisible) ── */}

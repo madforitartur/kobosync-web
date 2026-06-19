@@ -11,19 +11,32 @@ function storagePath(fileId: string, filename: string) {
   return `${fileId}/${filename.replace(/[^\w.\-]+/g, "-")}`;
 }
 
+function cleanString(s: string | null | undefined): string | null {
+  if (!s) return null;
+  let res = s.replace(/_/g, " ").trim();
+  // Remover números iniciais comuns (ex: "01. ", "1 - "), mas evita remover anos (4 dígitos)
+  res = res.replace(/^(?!\d{4})\d+[\s.\-]*[-.\s]\s*/, "");
+  return res || null;
+}
+
 function basicMetadataFromFilename(fileName: string) {
   const name = stripExtension(fileName);
+
+  // Tentar separar Título e Autor pelo padrão " - "
   const separator = name.lastIndexOf(" - ");
 
   if (separator > 0) {
+    const title = name.slice(0, separator);
+    const author = name.slice(separator + 3);
+
     return {
-      title: name.slice(0, separator).trim(),
-      author: name.slice(separator + 3).trim() || null,
+      title: cleanString(title) || title,
+      author: cleanString(author)
     };
   }
 
   return {
-    title: name,
+    title: cleanString(name) || name,
     author: null,
   };
 }
@@ -103,7 +116,8 @@ export async function syncLibrary() {
       }
 
       const epubBytes = await downloadFromDrive(file.id, token);
-      const parsed = await parseEpub(epubBytes, stripExtension(file.name));
+      const metadataFromFilename = basicMetadataFromFilename(file.name);
+      const parsed = await parseEpub(epubBytes, metadataFromFilename.title);
 
       const epubPath = storagePath(file.id, file.name);
       const { error: epubError } = await supabase.storage
@@ -133,9 +147,9 @@ export async function syncLibrary() {
 
       const record = {
         drive_file_id: file.id,
-        title: parsed.metadata.title,
-        author: parsed.metadata.author,
-        series: parsed.metadata.series,
+        title: cleanString(parsed.metadata.title) || metadataFromFilename.title,
+        author: cleanString(parsed.metadata.author) || metadataFromFilename.author,
+        series: cleanString(parsed.metadata.series),
         series_index: parsed.metadata.seriesIndex,
         language: parsed.metadata.language,
         publisher: parsed.metadata.publisher,
