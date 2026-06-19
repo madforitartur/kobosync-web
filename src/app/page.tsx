@@ -23,6 +23,16 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { useIsTouchDevice } from "@/hooks/useDeviceType";
 import type { Book } from "@/types/library";
 
+// Remove prefixos numéricos ("001_", "12. ", "03 - ") e underscores dos títulos dos livros
+function cleanBookTitle(raw: string): string {
+  return raw
+    .replace(/^[\d]+[\s._\-–]+/, "")   // prefixo numérico: "001_", "12. ", "03 - "
+    .replace(/_/g, " ")                 // underscores → espaços
+    .replace(/\s{2,}/g, " ")           // espaços duplos → simples
+    .trim();
+}
+
+
 type Status = { type: "info" | "success" | "error"; message: string } | null;
 type MobileTab = "library" | "selected" | "search";
 
@@ -571,11 +581,11 @@ export default function Home() {
                     <div className="w-16 shrink-0">
                       <BookCover
                         coverUrl={contextMenu.book.cover_url}
-                        title={contextMenu.book.title}
+                        title={cleanBookTitle(contextMenu.book.title)}
                       />
                     </div>
                     <div className="min-w-0">
-                      <p className="truncate font-bold text-primary">{contextMenu.book.title}</p>
+                      <p className="truncate font-bold text-primary">{cleanBookTitle(contextMenu.book.title)}</p>
                       <p className="truncate text-sm text-on-surface-variant">
                         {contextMenu.book.author ?? "Autor desconhecido"}
                       </p>
@@ -893,14 +903,14 @@ export default function Home() {
                           {book.cover_url ? (
                             <BookCover
                               coverUrl={book.cover_url}
-                              title={book.title}
+                              title={cleanBookTitle(book.title)}
                               isSelected={selectedIds.has(book.id)}
                               selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
                               checkSize={16}
                             />
                           ) : (
                             <div className="relative">
-                              <BookCoverPlaceholder title={book.title} />
+                              <BookCoverPlaceholder title={cleanBookTitle(book.title)} />
                               {selectedIds.has(book.id) && (
                                 <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary">
                                   <Check size={16} />
@@ -908,10 +918,10 @@ export default function Home() {
                               )}
                             </div>
                           )}
-                          <h3 className="mt-3 line-clamp-2 font-display-lg text-[20px] font-bold leading-snug text-primary">
-                            {book.title}
+                          <h3 className="mt-3 line-clamp-2 font-display-lg text-[18px] font-bold leading-snug text-primary">
+                            {cleanBookTitle(book.title)}
                           </h3>
-                          <p className="mt-1 truncate text-sm text-on-surface-variant">
+                          <p className="mt-1 line-clamp-1 text-sm text-on-surface-variant">
                             {book.author ?? "Autor desconhecido"}
                           </p>
                           <p className="mt-2 text-[11px] font-bold uppercase tracking-wider text-outline">
@@ -1010,7 +1020,7 @@ export default function Home() {
             >
               <div className="border-b border-outline-variant bg-surface-container-low px-4 py-2">
                 <p className="truncate text-xs font-bold uppercase tracking-wider text-outline">
-                  {contextMenu.book.title}
+                  {cleanBookTitle(contextMenu.book.title)}
                 </p>
               </div>
               <button
@@ -1109,7 +1119,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
           {book.cover_url ? (
             <BookCover
               coverUrl={book.cover_url}
-              title={book.title}
+              title={cleanBookTitle(book.title)}
               isSelected={isSelected}
               selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
               checkSize={11}
@@ -1120,7 +1130,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
                 <div className="flex flex-col items-center gap-1 p-2 text-center">
                   <BookOpen size={20} strokeWidth={1.4} />
                   <p className="line-clamp-2 text-[9px] font-bold leading-tight">
-                    {book.title.slice(0, 2).toUpperCase()}
+                    {cleanBookTitle(book.title).slice(0, 2).toUpperCase()}
                   </p>
                 </div>
               </div>
@@ -1133,9 +1143,9 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
           )}
         </div>
         <p className="mt-1.5 line-clamp-2 text-[11px] font-bold leading-tight text-primary">
-          {book.title}
+          {cleanBookTitle(book.title)}
         </p>
-        <p className="mt-0.5 truncate text-[10px] text-on-surface-variant">
+        <p className="mt-0.5 line-clamp-1 text-[10px] text-on-surface-variant">
           {book.author ?? "–"}
         </p>
       </motion.div>

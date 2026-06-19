@@ -28,42 +28,47 @@ const FONT_SIZE_CLASS: Record<FontSize, string> = {
 const FONT_SIZE_LABELS: Record<FontSize, string> = { xs: "XS", sm: "S", md: "M", lg: "L", xl: "XL" };
 
 const THEMES: Record<Theme, { label: string; bg: string; page: string; text: string; accent: string; eink?: boolean }> = {
-  light: { label: "Claro",  bg: "#e8e6e1", page: "#fdfcf8", text: "#1a1a1a", accent: "#6b6f7a" },
-  sepia: { label: "Sépia",  bg: "#d4c4a8", page: "#f5ecd9", text: "#3d2f1f", accent: "#9b7f58" },
-  paper: { label: "Papel",  bg: "#c9c5be", page: "#f7f3ea", text: "#1a1a1a", accent: "#6a6050" },
-  dark:  { label: "Noite",  bg: "#0d0d0f", page: "#18181b", text: "#e4e4e7", accent: "#71717a" },
-  eink:  { label: "E-Ink",  bg: "#b0b0b0", page: "#e8e8e8", text: "#0a0a0a", accent: "#444444", eink: true },
+  light: { label: "Claro", bg: "#e8e6e1", page: "#fdfcf8", text: "#1a1a1a", accent: "#6b6f7a" },
+  sepia: { label: "Sépia", bg: "#d4c4a8", page: "#f5ecd9", text: "#3d2f1f", accent: "#9b7f58" },
+  paper: { label: "Papel", bg: "#c9c5be", page: "#f7f3ea", text: "#1a1a1a", accent: "#6a6050" },
+  dark:  { label: "Noite", bg: "#0d0d0f", page: "#18181b", text: "#e4e4e7", accent: "#71717a" },
+  eink:  { label: "E-Ink", bg: "#b0b0b0", page: "#e8e8e8", text: "#0a0a0a", accent: "#444444", eink: true },
 };
 
-const PAGE_ANIMS: { id: PageAnim; label: string }[] = [
-  { id: "none",  label: "Nenhuma" },
-  { id: "fade",  label: "Fade" },
-  { id: "slide", label: "Slide" },
-  { id: "curl",  label: "Folha" },
+const PAGE_ANIMS: { id: PageAnim; label: string; icon: string }[] = [
+  { id: "none",  label: "Nenhuma", icon: "✕" },
+  { id: "fade",  label: "Fade",    icon: "✦" },
+  { id: "slide", label: "Slide",   icon: "→" },
+  { id: "curl",  label: "Folha",   icon: "📄" },
 ];
 
-// ── Fullscreen cross-browser ──
-async function requestFullscreen() {
-  const el = document.documentElement;
-  try {
-    if (el.requestFullscreen) await el.requestFullscreen();
-    else if ((el as any).webkitRequestFullscreen) (el as any).webkitRequestFullscreen();
-  } catch {}
-}
-
-// ── CSS da animação de viragem de página (page curl) injectado globalmente ──
+// CSS da animação de viragem de página (page curl 3D)
 const CURL_CSS = `
-@keyframes pageCurlNext {
-  0%   { transform: perspective(1200px) rotateY(0deg); transform-origin: left center; opacity: 1; }
-  100% { transform: perspective(1200px) rotateY(-90deg); transform-origin: left center; opacity: 0; }
+@keyframes _curlNext {
+  0%   { transform: perspective(1200px) rotateY(0deg);   transform-origin: left center;  opacity: 1; }
+  100% { transform: perspective(1200px) rotateY(-90deg); transform-origin: left center;  opacity: 0; }
 }
-@keyframes pageCurlPrev {
-  0%   { transform: perspective(1200px) rotateY(0deg); transform-origin: right center; opacity: 1; }
+@keyframes _curlPrev {
+  0%   { transform: perspective(1200px) rotateY(0deg);   transform-origin: right center; opacity: 1; }
   100% { transform: perspective(1200px) rotateY(90deg);  transform-origin: right center; opacity: 0; }
 }
-.curl-exit-next { animation: pageCurlNext 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
-.curl-exit-prev { animation: pageCurlPrev 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
+._curl-next { animation: _curlNext 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
+._curl-prev { animation: _curlPrev 0.42s cubic-bezier(0.4,0,0.2,1) forwards; }
 `;
+
+// Tenta fullscreen (cross-browser). Retorna true se conseguiu.
+async function tryFullscreen(): Promise<boolean> {
+  const el = document.documentElement;
+  try {
+    if (el.requestFullscreen) {
+      await el.requestFullscreen({ navigationUI: "hide" });
+      return true;
+    }
+    const wk = (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen;
+    if (wk) { await wk.call(el); return true; }
+  } catch {}
+  return false;
+}
 
 export default function ReadPage() {
   const params = useParams();
@@ -77,13 +82,12 @@ export default function ReadPage() {
   const [fontSize, setFontSize] = useState<FontSize>("md");
   const [theme, setTheme] = useState<Theme>("light");
   const [pageAnim, setPageAnim] = useState<PageAnim>("fade");
+  // UI (header + footer) começa oculta — ecrã limpo
   const [uiVisible, setUiVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [restoredFromCache, setRestoredFromCache] = useState(false);
   const [progress, setProgress] = useState(0);
-
-  // Animação de viragem: controla qual classe CSS adicionar ao scroll container
-  const [curlClass, setCurlClass] = useState<string>("");
+  const [curlClass, setCurlClass] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipNextSave = useRef(false);
@@ -92,31 +96,46 @@ export default function ReadPage() {
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
   const touchStartTime = useRef(0);
-  const isTouchDevice = useRef(false);
+  const fullscreenAttempted = useRef(false);
 
-  // ── Detectar touch + fullscreen imediato em mobile ──
+  // ── Injectar CSS curl ──
   useEffect(() => {
-    isTouchDevice.current =
-      "ontouchstart" in window || navigator.maxTouchPoints > 0;
-
-    if (isTouchDevice.current) {
-      // Tenta imediatamente; se falhar (policy), tenta no primeiro toque
-      requestFullscreen().catch(() => {
-        const onFirstTouch = () => {
-          requestFullscreen();
-          document.removeEventListener("touchstart", onFirstTouch);
-        };
-        document.addEventListener("touchstart", onFirstTouch, { once: true });
-      });
-    }
+    const s = document.createElement("style");
+    s.textContent = CURL_CSS;
+    document.head.appendChild(s);
+    return () => { document.head.removeChild(s); };
   }, []);
 
-  // ── Injectar CSS da animação curl ──
+  // ── Fullscreen imediato ao montar ──
+  // Browsers móveis exigem gesto do utilizador para fullscreen.
+  // Estratégia: tenta ao montar; se falhar, tenta no primeiro toque.
   useEffect(() => {
-    const style = document.createElement("style");
-    style.textContent = CURL_CSS;
-    document.head.appendChild(style);
-    return () => { document.head.removeChild(style); };
+    if (fullscreenAttempted.current) return;
+    fullscreenAttempted.current = true;
+
+    tryFullscreen().then((ok) => {
+      if (!ok) {
+        // Fallback: primeiro evento de toque/click do utilizador
+        const onGesture = () => {
+          tryFullscreen();
+          document.removeEventListener("touchstart", onGesture, true);
+          document.removeEventListener("click", onGesture, true);
+        };
+        document.addEventListener("touchstart", onGesture, { once: true, capture: true });
+        document.addEventListener("click", onGesture, { once: true, capture: true });
+      }
+    });
+
+    // Listener para sincronizar estado se o utilizador sair manualmente
+    const onChange = () => {
+      // Nada a fazer — não temos estado de fullscreen local
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    document.addEventListener("webkitfullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      document.removeEventListener("webkitfullscreenchange", onChange);
+    };
   }, []);
 
   // ── Carregar livro ──
@@ -164,7 +183,7 @@ export default function ReadPage() {
     } catch {}
   }, [data, bookId, restoredFromCache]);
 
-  // ── Guardar posição + progresso ──
+  // ── Guardar posição + calcular progresso ──
   useEffect(() => {
     if (!data) return;
     const el = scrollRef.current;
@@ -176,7 +195,9 @@ export default function ReadPage() {
       if (skipNextSave.current) { skipNextSave.current = false; return; }
       if (t) window.clearTimeout(t);
       t = window.setTimeout(() => {
-        try { localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() })); } catch {}
+        try {
+          localStorage.setItem(CACHE_PREFIX + bookId, JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() }));
+        } catch {}
       }, 500);
     };
     el.addEventListener("scroll", onScroll, { passive: true });
@@ -192,6 +213,7 @@ export default function ReadPage() {
     router.back();
   }, [bookId, router]);
 
+  // ── Mostrar UI temporariamente (4s) ──
   const showUiTemporarily = useCallback(() => {
     if (hideTimer.current) window.clearTimeout(hideTimer.current);
     setUiVisible(true);
@@ -201,14 +223,14 @@ export default function ReadPage() {
     }, 4000);
   }, []);
 
-  // ── Navegar com animação ──
+  // ── Navegação com animação ──
   const navigate = useCallback((direction: "next" | "prev") => {
     const el = scrollRef.current;
     if (!el) return;
     const delta = el.clientHeight * 0.9;
 
     if (pageAnim === "curl") {
-      const cls = direction === "next" ? "curl-exit-next" : "curl-exit-prev";
+      const cls = direction === "next" ? "_curl-next" : "_curl-prev";
       setCurlClass(cls);
       setTimeout(() => {
         el.scrollBy({ top: direction === "next" ? delta : -delta, behavior: "auto" });
@@ -223,16 +245,14 @@ export default function ReadPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") return saveAndClose();
-      const el = scrollRef.current;
-      if (!el) return;
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigate("next"); }
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp")   { e.preventDefault(); navigate("prev"); }
+      if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigate("prev"); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [saveAndClose, navigate]);
 
-  // ── Touch handlers ──
+  // ── Touch: start ──
   const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     const t = e.touches[0];
     touchStartX.current = t.clientX;
@@ -240,45 +260,44 @@ export default function ReadPage() {
     touchStartTime.current = Date.now();
   }, []);
 
+  // ── Touch: end ──
   const handleTouchEnd = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
     const t = e.changedTouches[0];
     const dx = t.clientX - touchStartX.current;
     const dy = t.clientY - touchStartY.current;
     const dt = Date.now() - touchStartTime.current;
 
-    // Swipe horizontal
+    // Swipe horizontal → virar página
     if (Math.abs(dx) > SWIPE_MIN_X && Math.abs(dy) < SWIPE_MAX_Y && dt < 400) {
       e.preventDefault();
       navigate(dx < 0 ? "next" : "prev");
       return;
     }
 
-    // Double tap → toggle UI
+    // Double tap → toggle UI permanente
     const now = Date.now();
     if (now - lastTapTime.current < DOUBLE_TAP_MS) {
       e.preventDefault();
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
-      setUiVisible(v => { if (v) setShowSettings(false); return !v; });
+      setUiVisible((v) => { if (v) setShowSettings(false); return !v; });
       lastTapTime.current = 0;
       return;
     }
     lastTapTime.current = now;
 
-    // Tap zones
+    // Toque simples: zonas esq/centro/dir
     const W = window.innerWidth;
     const H = window.innerHeight;
-    const tapX = t.clientX;
-    const tapY = t.clientY;
-    if (tapY < 80 || tapY > H - 60) return;
+    if (t.clientY < 80 || t.clientY > H - 60) return; // ignora topo e fundo
 
-    if (tapX < W * 0.3)      navigate("prev");
-    else if (tapX > W * 0.7) navigate("next");
-    else                      showUiTemporarily();
+    if (t.clientX < W * 0.3)      navigate("prev");
+    else if (t.clientX > W * 0.7) navigate("next");
+    else                           showUiTemporarily();
   }, [navigate, showUiTemporarily]);
 
   const T = THEMES[theme];
 
-  // ── LOADING ──
+  // ── Loading ──
   if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center" style={{ backgroundColor: T.bg }}>
@@ -290,7 +309,7 @@ export default function ReadPage() {
     );
   }
 
-  // ── ERROR ──
+  // ── Erro ──
   if (error || !data || !book) {
     return (
       <div className="flex h-screen w-screen items-center justify-center p-6" style={{ backgroundColor: T.bg }}>
@@ -308,29 +327,13 @@ export default function ReadPage() {
     );
   }
 
-  // ── Animações Framer Motion por tipo ──
-  const fadeVariants = {
-    initial: { opacity: 0 },
-    animate: { opacity: 1 },
-    exit:    { opacity: 0 },
-  };
-  const slideVariants = {
-    initial: (dir: number) => ({ x: dir > 0 ? "100%" : "-100%", opacity: 0.6 }),
-    animate: { x: 0, opacity: 1 },
-    exit:    (dir: number) => ({ x: dir > 0 ? "-100%" : "100%", opacity: 0.6 }),
-  };
-
   return (
     <div
       className="relative h-screen w-screen overflow-hidden select-none"
-      style={{
-        backgroundColor: T.bg,
-        // E-Ink: sem anti-aliasing suave, fonte mais nítida
-        ...(T.eink ? { fontSmooth: "never", WebkitFontSmoothing: "none" } as React.CSSProperties : {}),
-      }}
+      style={{ backgroundColor: T.bg }}
     >
-      {/* ── BARRA DE PROGRESSO (sempre visível) ── */}
-      <div className="fixed inset-x-0 top-0 z-50 h-[2px]" style={{ backgroundColor: `${T.accent}20` }}>
+      {/* ── BARRA DE PROGRESSO (sempre visível, 2px no topo) ── */}
+      <div className="fixed inset-x-0 top-0 z-50 h-[2px]" style={{ backgroundColor: `${T.accent}25` }}>
         <motion.div
           className="h-full"
           style={{ backgroundColor: T.accent }}
@@ -339,60 +342,82 @@ export default function ReadPage() {
         />
       </div>
 
-      {/* ── HEADER (visível quando uiVisible) ── */}
+      {/* ── BOTÃO FECHAR — sempre acessível, canto sup. esq., z alto ──
+           Fica FORA do header para não ser tapado pelo painel de definições */}
       <AnimatePresence>
         {uiVisible && (
-          <motion.div
-            initial={{ opacity: 0, y: -48 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -48 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-3 px-4 py-3"
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.18 }}
+            onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
+            className="fixed left-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-90 transition-transform"
             style={{
-              paddingTop: `calc(0.75rem + env(safe-area-inset-top, 0px))`,
-              background: `linear-gradient(to bottom, ${T.bg}f5 60%, ${T.bg}00 100%)`,
+              top: `calc(0.75rem + env(safe-area-inset-top, 0px))`,
+              backgroundColor: T.page,
+              color: T.text,
+              border: `1px solid ${T.accent}35`,
             }}
+            aria-label="Fechar"
           >
-            <button
-              onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
-              className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
-              style={{ backgroundColor: T.page, color: T.text, border: `1px solid ${T.accent}30` }}
-              aria-label="Fechar"
-            >
-              <X size={18} />
-            </button>
-            <span className="min-w-0 truncate text-center text-xs font-medium" style={{ color: T.accent }}>
-              {book.author ?? ""}
-            </span>
-            <button
-              onPointerDown={(e) => { e.stopPropagation(); setShowSettings(v => !v); showUiTemporarily(); }}
-              className="flex h-11 w-11 items-center justify-center rounded-full shadow-lg active:scale-95 transition-transform"
-              style={{
-                backgroundColor: showSettings ? T.text : T.page,
-                color: showSettings ? T.page : T.text,
-                border: `1px solid ${T.accent}30`,
-              }}
-              aria-label="Definições"
-            >
-              <Settings2 size={17} />
-            </button>
-          </motion.div>
+            <X size={18} />
+          </motion.button>
         )}
       </AnimatePresence>
 
-      {/* ── PAINEL DE DEFINIÇÕES ── */}
+      {/* ── BOTÃO DEFINIÇÕES — canto sup. dir., z alto ── */}
+      <AnimatePresence>
+        {uiVisible && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.18 }}
+            onPointerDown={(e) => { e.stopPropagation(); setShowSettings((v) => !v); showUiTemporarily(); }}
+            className="fixed right-4 z-[60] flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-90 transition-transform"
+            style={{
+              top: `calc(0.75rem + env(safe-area-inset-top, 0px))`,
+              backgroundColor: showSettings ? T.text : T.page,
+              color: showSettings ? T.page : T.text,
+              border: `1px solid ${T.accent}35`,
+            }}
+            aria-label="Definições"
+          >
+            <Settings2 size={17} />
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* ── GRADIENTE SUPERIOR (contexto visual para os botões) ── */}
+      <AnimatePresence>
+        {uiVisible && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="pointer-events-none fixed inset-x-0 top-0 z-40 h-24"
+            style={{
+              background: `linear-gradient(to bottom, ${T.bg}e0 0%, ${T.bg}00 100%)`,
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── PAINEL DE DEFINIÇÕES ──
+           z-[55] — acima do gradiente mas abaixo dos botões (z-[60]) */}
       <AnimatePresence>
         {uiVisible && showSettings && (
           <motion.div
-            initial={{ opacity: 0, y: -8 }}
+            initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className="fixed inset-x-3 z-30 rounded-2xl p-4 shadow-2xl"
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-x-3 z-[55] rounded-2xl p-4 shadow-2xl"
             style={{
-              top: `calc(4.5rem + env(safe-area-inset-top, 0px))`,
+              top: `calc(4.25rem + env(safe-area-inset-top, 0px))`,
               backgroundColor: T.page,
-              border: `1px solid ${T.accent}20`,
+              border: `1px solid ${T.accent}25`,
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
@@ -405,9 +430,9 @@ export default function ReadPage() {
                 <button
                   key={s}
                   onPointerDown={() => setFontSize(s)}
-                  className="flex h-10 flex-1 items-center justify-center rounded-xl text-sm font-bold transition-colors active:scale-95"
+                  className="flex h-10 flex-1 items-center justify-center rounded-xl text-sm font-bold active:scale-95 transition-transform"
                   style={{
-                    backgroundColor: fontSize === s ? T.text : `${T.accent}15`,
+                    backgroundColor: fontSize === s ? T.text : `${T.accent}18`,
                     color: fontSize === s ? T.page : T.text,
                   }}
                 >
@@ -426,26 +451,17 @@ export default function ReadPage() {
                   key={t}
                   onPointerDown={() => setTheme(t)}
                   title={THEMES[t].label}
-                  className="flex h-10 flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-bold transition-all active:scale-95"
+                  className="flex h-12 flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-bold active:scale-95 transition-all"
                   style={{
                     backgroundColor: THEMES[t].page,
                     color: THEMES[t].text,
                     border: theme === t ? `2.5px solid ${T.text}` : `1px solid ${T.accent}25`,
                     boxShadow: theme === t ? `0 0 0 2px ${T.bg}` : "none",
-                    // E-Ink: padrão especial
-                    ...(t === "eink" ? {
-                      background: "linear-gradient(135deg, #e8e8e8 0%, #d0d0d0 100%)",
-                      fontFamily: "monospace",
-                    } : {}),
                   }}
                 >
                   <span
-                    className="h-3 w-3 rounded-full border"
-                    style={{
-                      backgroundColor: THEMES[t].text,
-                      borderColor: `${THEMES[t].accent}60`,
-                      ...(t === "eink" ? { borderRadius: "2px" } : {}),
-                    }}
+                    className="h-3 w-3 rounded-full"
+                    style={{ backgroundColor: THEMES[t].text }}
                   />
                   {THEMES[t].label}
                 </button>
@@ -461,15 +477,14 @@ export default function ReadPage() {
                 <button
                   key={a.id}
                   onPointerDown={() => setPageAnim(a.id)}
-                  className="flex h-10 flex-1 items-center justify-center rounded-xl text-[11px] font-bold transition-colors active:scale-95"
+                  className="flex h-10 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-bold active:scale-95 transition-colors"
                   style={{
-                    backgroundColor: pageAnim === a.id ? T.text : `${T.accent}15`,
+                    backgroundColor: pageAnim === a.id ? T.text : `${T.accent}18`,
                     color: pageAnim === a.id ? T.page : T.text,
                   }}
                 >
-                  {a.id === "curl"  ? "📄" :
-                   a.id === "fade"  ? "✨" :
-                   a.id === "slide" ? "→" : "✕"} {a.label}
+                  <span className="text-sm leading-none">{a.icon}</span>
+                  {a.label}
                 </button>
               ))}
             </div>
@@ -493,23 +508,21 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ── CONTEÚDO COM ANIMAÇÃO ── */}
+      {/* ── CONTEÚDO DO LIVRO ── */}
       <div
         ref={scrollRef}
         className={`prose-book h-full w-full overflow-y-auto overscroll-none ${curlClass}`}
         style={{
           backgroundColor: T.page,
           color: T.text,
-          paddingTop: "calc(2rem + env(safe-area-inset-top, 0px))",
+          paddingTop: "calc(2.5rem + env(safe-area-inset-top, 0px))",
           paddingBottom: "calc(3rem + env(safe-area-inset-bottom, 0px))",
           paddingLeft: "clamp(1.25rem, 5vw, 3rem)",
           paddingRight: "clamp(1.25rem, 5vw, 3rem)",
           scrollbarWidth: "none",
           WebkitOverflowScrolling: "touch",
-          // E-Ink: sem transições de cor, fundo ligeiramente texturado
           ...(T.eink ? {
-            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.3'/%3E%3C/svg%3E\")",
-            letterSpacing: "0.01em",
+            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.25'/%3E%3C/svg%3E\")",
           } : {}),
         } as React.CSSProperties}
         onTouchStart={handleTouchStart}
@@ -523,11 +536,11 @@ export default function ReadPage() {
           style={{
             maxWidth: "65ch",
             margin: "0 auto",
-            // E-Ink: força texto mais bold para melhor legibilidade
-            ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } : {}),
+            ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } as React.CSSProperties : {}),
           }}
         />
 
+        {/* Fim do livro */}
         <div
           className="mx-auto mt-24 flex max-w-[65ch] flex-col items-center gap-3 border-t py-16"
           style={{ borderColor: `${T.accent}30` }}
@@ -540,21 +553,21 @@ export default function ReadPage() {
         </div>
       </div>
 
-      {/* ── FOOTER (visível quando uiVisible) ── */}
+      {/* ── GRADIENTE + INFO INFERIOR (visível quando uiVisible) ── */}
       <AnimatePresence>
         {uiVisible && (
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
+            exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between px-5 py-3"
             style={{
               paddingBottom: `calc(0.75rem + env(safe-area-inset-bottom, 0px))`,
-              background: `linear-gradient(to top, ${T.bg}f5 60%, ${T.bg}00 100%)`,
+              background: `linear-gradient(to top, ${T.bg}e0 60%, ${T.bg}00 100%)`,
             }}
           >
-            <span className="text-[11px] font-bold" style={{ color: T.accent }}>
+            <span className="text-[11px] font-medium" style={{ color: T.accent }}>
               {book.author ?? ""}
             </span>
             <span className="text-[11px] font-bold tabular-nums" style={{ color: T.accent }}>
