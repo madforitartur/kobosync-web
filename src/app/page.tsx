@@ -908,7 +908,7 @@ export default function Home() {
                               )}
                             </div>
                           )}
-                          <h3 className="mt-3 line-clamp-2 font-display-lg text-[20px] font-bold leading-snug text-primary">
+                          <h3 className="mt-3 line-clamp-2 h-[2.5em] font-display-lg text-[20px] font-bold leading-tight text-primary">
                             {book.title}
                           </h3>
                           <p className="mt-1 truncate text-sm text-on-surface-variant">
@@ -1132,7 +1132,7 @@ function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }:
             </div>
           )}
         </div>
-        <p className="mt-1.5 line-clamp-2 text-[11px] font-bold leading-tight text-primary">
+        <p className="mt-1.5 line-clamp-2 h-[2.5em] text-[11px] font-bold leading-tight text-primary">
           {book.title}
         </p>
         <p className="mt-0.5 truncate text-[10px] text-on-surface-variant">
