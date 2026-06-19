@@ -528,61 +528,29 @@ export default function ReadPage() {
       <div
         className={`flex h-full w-full items-center justify-center ${deviceType === "desktop" ? "p-8" : ""}`}
         style={{ perspective: "2000px" }}
+        onClick={(e) => {
+          if (deviceType !== "desktop") return;
+          const target = e.target as HTMLElement;
+          if (target.closest('button') || target.closest('.z-50')) return;
+
+          const W = window.innerWidth;
+          const x = e.clientX;
+          if (x < W * 0.3) navigate("prev");
+          else if (x > W * 0.7) navigate("next");
+          else showUiTemporarily();
+        }}
       >
         <div
-          ref={scrollRef}
-          className={`prose-book relative h-full w-full overscroll-none overflow-x-auto snap-x snap-mandatory ${curlClass}`}
-          style={{
-            backgroundColor: T.page,
-            color: T.text,
-            scrollbarWidth: "none",
-            WebkitOverflowScrolling: "touch",
-            ...(deviceType === "desktop" ? {
+          className="relative overflow-hidden"
+          style={deviceType === "desktop" ? {
               width: "min(1400px, 95vw)",
               height: "min(900px, 85vh)",
               borderRadius: "4px",
               boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5), 0 0 40px rgba(0,0,0,0.1) inset",
               transform: "rotateX(2deg)",
-            } : {}),
-            // E-Ink: sem transições de cor, fundo ligeiramente texturado
-            ...(T.eink ? {
-              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.3'/%3E%3C/svg%3E\")",
-              letterSpacing: "0.01em",
-            } : {}),
-          } as React.CSSProperties}
-          onTouchStart={handleTouchStart}
-          onTouchEnd={handleTouchEnd}
+          } : { width: "100%", height: "100%" }}
         >
-          <style>{`
-            .prose-book::-webkit-scrollbar { display: none; }
-            .paginated-content {
-              column-fill: auto;
-              height: 100%;
-              width: 100%;
-            }
-            .paginated-content > * {
-              scroll-snap-align: start;
-              break-inside: avoid-column;
-            }
-            /* Desktop: 2 colunas */
-            @media (min-width: 1024px) {
-              .paginated-content {
-                column-count: 2;
-                column-gap: 80px;
-                padding: 60px 80px;
-              }
-            }
-            /* Mobile: 1 coluna */
-            @media (max-width: 1023px) {
-              .paginated-content {
-                column-width: 100vw;
-                column-gap: 0;
-                padding: calc(2.5rem + env(safe-area-inset-top, 0px)) 1.5rem calc(3.5rem + env(safe-area-inset-bottom, 0px));
-              }
-            }
-          `}</style>
-
-          {/* Sombra central (lombada) apenas em Desktop */}
+          {/* Sombra central (lombada) apenas em Desktop - Fixa sobre o conteúdo */}
           {deviceType === "desktop" && (
             <div
               className="pointer-events-none absolute inset-0 z-10"
@@ -593,32 +561,79 @@ export default function ReadPage() {
           )}
 
           <div
-            dangerouslySetInnerHTML={{ __html: fullHtml }}
-            className={`${FONT_SIZE_CLASS[fontSize]} select-text paginated-content`}
+            ref={scrollRef}
+            className={`prose-book h-full w-full overscroll-none overflow-x-auto snap-x snap-mandatory ${curlClass}`}
             style={{
-              // E-Ink: força texto mais bold para melhor legibilidade
-              ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } : {}),
-            }}
-          />
+              backgroundColor: T.page,
+              color: T.text,
+              scrollbarWidth: "none",
+              WebkitOverflowScrolling: "touch",
+              // E-Ink: sem transições de cor, fundo ligeiramente texturado
+              ...(T.eink ? {
+                backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.3'/%3E%3C/svg%3E\")",
+                letterSpacing: "0.01em",
+              } : {}),
+            } as React.CSSProperties}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+          >
+            <style>{`
+              .prose-book::-webkit-scrollbar { display: none; }
+              .paginated-content {
+                column-fill: auto;
+                height: 100%;
+                width: 100%;
+              }
+              .paginated-content > * {
+                scroll-snap-align: start;
+                break-inside: avoid-column;
+              }
+              /* Desktop: 2 colunas */
+              @media (min-width: 1024px) {
+                .paginated-content {
+                  column-count: 2;
+                  column-gap: 80px;
+                  padding: 60px 80px;
+                }
+              }
+              /* Mobile: 1 coluna */
+              @media (max-width: 1023px) {
+                .paginated-content {
+                  column-width: 100vw;
+                  column-gap: 0;
+                  padding: calc(2.5rem + env(safe-area-inset-top, 0px)) 1.5rem calc(3.5rem + env(safe-area-inset-bottom, 0px));
+                }
+              }
+            `}</style>
 
-          {/* Padding para a última página em mobile não ficar colada ao footer */}
-          {deviceType !== "desktop" && <div className="w-[100vw] h-1 shrink-0" />}
+            <div
+              dangerouslySetInnerHTML={{ __html: fullHtml }}
+              className={`${FONT_SIZE_CLASS[fontSize]} select-text paginated-content`}
+              style={{
+                // E-Ink: força texto mais bold para melhor legibilidade
+                ...(T.eink ? { fontWeight: 500, textRendering: "geometricPrecision" } : {}),
+              }}
+            />
 
-        <div
-          className="mx-auto flex flex-col items-center gap-3 py-16"
-          style={{
-            borderColor: `${T.accent}30`,
-            width: deviceType === "desktop" ? "100%" : "65ch",
-            borderTop: deviceType === "desktop" ? "none" : "1px solid"
-          }}
-        >
-          <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
-          <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>Fim</p>
-          {restoredFromCache && (
-            <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>
-          )}
+            {/* Padding para a última página em mobile não ficar colada ao footer */}
+            {deviceType !== "desktop" && <div className="w-[100vw] h-1 shrink-0" />}
+
+            <div
+              className="mx-auto flex flex-col items-center gap-3 py-16"
+              style={{
+                borderColor: `${T.accent}30`,
+                width: deviceType === "desktop" ? "100%" : "65ch",
+                borderTop: deviceType === "desktop" ? "none" : "1px solid"
+              }}
+            >
+              <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
+              <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>Fim</p>
+              {restoredFromCache && (
+                <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* ── FOOTER (visível quando uiVisible) ── */}
