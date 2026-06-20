@@ -340,7 +340,7 @@ export default function Home() {
         setStatus({ type: "error", message: "Este browser não suporta sincronização USB (usa Chrome ou Edge)." });
         return;
       }
-      const dirHandle = await picker.showDirectoryPicker({ mode: "readwrite" } as any);
+      const dirHandle = await (picker.showDirectoryPicker as () => Promise<FileSystemDirectoryHandle>)();
       setStatus({ type: "info", message: `A copiar ${booksToSend.length} livros para o Kobo…` });
 
       let ok = 0;
