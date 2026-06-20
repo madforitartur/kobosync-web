@@ -337,25 +337,47 @@ export default function Home() {
           showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>;
         };
       if (!picker.showDirectoryPicker) {
-        setStatus({ type: "error", message: "Este browser não suporta sincronização USB." });
+        setStatus({ type: "error", message: "Este browser não suporta sincronização USB (usa Chrome ou Edge)." });
         return;
       }
-      const dirHandle = await picker.showDirectoryPicker();
+      const dirHandle = await picker.showDirectoryPicker({ mode: "readwrite" } as any);
       setStatus({ type: "info", message: `A copiar ${booksToSend.length} livros para o Kobo…` });
+
+      let ok = 0;
+      let fail = 0;
       for (const book of booksToSend) {
-        if (!book.epub_url) continue;
-        const response = await fetch(book.epub_url);
-        const blob = await response.blob();
-        const safeTitle = book.title.replace(/[\\/:*?"<>|]+/g, "-");
-        const fileHandle = await dirHandle.getFileHandle(`${safeTitle}.epub`, { create: true });
-        const writable = await fileHandle.createWritable();
-        await writable.write(blob);
-        await writable.close();
+        try {
+          // Usa a API interna /api/books/[id]/download para evitar CORS
+          // e URLs de Supabase expiradas. O servidor renova a URL e serve o ficheiro.
+          const res = await fetch(`/api/books/${book.id}/download`);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const blob = await res.blob();
+          if (blob.size < 100) throw new Error("Ficheiro vazio");
+
+          // Nome de ficheiro limpo (sem caracteres inválidos)
+          const safeTitle = cleanBookTitle(book.title).replace(/[\/:*?"<>|]+/g, "-").trim();
+          const filename = `${safeTitle}.epub`;
+
+          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          ok++;
+          setStatus({ type: "info", message: `A copiar… ${ok}/${booksToSend.length}` });
+        } catch (err) {
+          fail++;
+          console.error(`Erro ao copiar "${book.title}":`, err);
+        }
       }
-      setStatus({ type: "success", message: "Livros copiados para o Kobo." });
+
+      if (fail === 0) {
+        setStatus({ type: "success", message: `${ok} livro${ok !== 1 ? "s" : ""} copiado${ok !== 1 ? "s" : ""} para o Kobo com sucesso.` });
+      } else {
+        setStatus({ type: "info", message: `${ok} copiados, ${fail} falharam. Verifica a consola para detalhes.` });
+      }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") return;
-      setStatus({ type: "error", message: "Não foi possível copiar para o Kobo." });
+      setStatus({ type: "error", message: "Não foi possível aceder à pasta do Kobo." });
     }
   }
 
@@ -921,9 +943,12 @@ export default function Home() {
                               )}
                             </div>
                           )}
-                          <h3 className="mt-3 line-clamp-2 font-display-lg text-[18px] font-bold leading-snug text-primary">
-                            {cleanBookTitle(book.title)}
-                          </h3>
+                          {/* Título: altura fixa de 2 linhas; autor sempre na 3.ª */}
+                          <div className="mt-3 h-[2.8rem] overflow-hidden">
+                            <h3 className="line-clamp-2 font-display-lg text-[18px] font-bold leading-[1.4] text-primary">
+                              {cleanBookTitle(book.title)}
+                            </h3>
+                          </div>
                           <p className="mt-1 line-clamp-1 text-sm text-on-surface-variant">
                             {book.author ?? "Autor desconhecido"}
                           </p>
