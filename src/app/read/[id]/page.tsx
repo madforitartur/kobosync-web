@@ -17,10 +17,8 @@ const CACHE_PREFIX  = "kobosync:reading:";
 const DOUBLE_TAP_MS = 280;
 const SWIPE_MIN_X   = 48;
 const SWIPE_MAX_Y   = 80;
-
-// Tamanho e line-height de cada opção de fonte (para alinhamento de página)
-const FONT_PX: Record<FontSize, number> = { xs:13, sm:15, md:17, lg:19, xl:22 };
-const FONT_LH: Record<FontSize, number> = { xs:1.6, sm:1.6, md:1.75, lg:1.8, xl:1.85 };
+// Linha de contexto fixa (px) que fica visível no topo da página seguinte
+const CONTEXT_PX    = 32;
 
 const FONT_CLASS: Record<FontSize, string> = {
   xs: "text-[13px] leading-relaxed",
@@ -60,9 +58,16 @@ const READER_CSS = `
 }
 .curl-n { animation: curlN 0.38s cubic-bezier(.4,0,.2,1) forwards; }
 .curl-p { animation: curlP 0.38s cubic-bezier(.4,0,.2,1) forwards; }
+/* Imagens inline do EPUB */
+.prose-book img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.75em auto;
+  border-radius: 4px;
+}
 `;
 
-// ── Fullscreen helpers ──
 async function tryFs(): Promise<boolean> {
   const el = document.documentElement as HTMLElement & {
     webkitRequestFullscreen?: (o?: { navigationUI?: string }) => Promise<void>;
@@ -94,30 +99,30 @@ export default function ReadPage() {
   const [data,    setData]    = useState<ReadData|null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string|null>(null);
-  const [fontSize,   setFontSize]   = useState<FontSize>("md");
-  const [theme,      setTheme]      = useState<Theme>("light");
-  const [pageAnim,   setPageAnim]   = useState<PageAnim>("fade");
-  const [uiVisible,  setUiVisible]  = useState(false);
-  const [showPanel,  setShowPanel]  = useState(false);
-  const [restored,   setRestored]   = useState(false);
-  const [progress,   setProgress]   = useState(0);
-  const [isFs,       setIsFs]       = useState(false);
+  const [fontSize,  setFontSize]  = useState<FontSize>("md");
+  const [theme,     setTheme]     = useState<Theme>("light");
+  const [pageAnim,  setPageAnim]  = useState<PageAnim>("fade");
+  // UI (botões + painel) — começa oculta
+  const [uiVisible, setUiVisible] = useState(false);
+  const [showPanel, setShowPanel] = useState(false);
+  const [restored,  setRestored]  = useState(false);
+  const [progress,  setProgress]  = useState(0);
+  const [isFs,      setIsFs]      = useState(false);
 
-  // Slide: controla opacity+transform do WRAPPER de texto (não do scroll)
-  // O scroll container fica estático; só o conteúdo desliza.
+  // Slide: anima o wrapper interno
   const [slideOut, setSlideOut] = useState(false);
   const [slideDir, setSlideDir] = useState<"next"|"prev">("next");
 
   // Curl: classe CSS no scroll container
   const [curlCls, setCurlCls] = useState("");
 
-  const scrollRef  = useRef<HTMLDivElement>(null);
-  const skipSave   = useRef(false);
-  const busy       = useRef(false); // bloqueia navegação dupla durante animação
-  const lastTap    = useRef(0);
-  const tX         = useRef(0);
-  const tY         = useRef(0);
-  const tT         = useRef(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const skipSave  = useRef(false);
+  const busy      = useRef(false);
+  const lastTap   = useRef(0);
+  const tX = useRef(0);
+  const tY = useRef(0);
+  const tT = useRef(0);
 
   // ── CSS ──
   useEffect(() => {
@@ -127,7 +132,7 @@ export default function ReadPage() {
     return () => { document.getElementById("rdr-css")?.remove(); };
   }, []);
 
-  // ── Sync estado fullscreen ──
+  // ── Sync fullscreen ──
   useEffect(() => {
     const fn = () => setIsFs(isFsOn());
     document.addEventListener("fullscreenchange", fn);
@@ -220,20 +225,23 @@ export default function ReadPage() {
     else tryFs().then((ok) => { if (ok) setIsFs(true); });
   }, []);
 
-  // ── Navegação com página alinhada ──
-  // Calcula delta alinhado à altura de linha para não cortar texto.
-  // Mantém 1 linha de sobreposição para continuidade de leitura.
+  // ── Esconder UI (botões + painel) ──
+  const hideUi = useCallback(() => {
+    setUiVisible(false);
+    setShowPanel(false);
+  }, []);
+
+  // ── Navegação ──
+  // CORRECÇÃO: usa clientHeight real do DOM, sem tentar alinhar a linhas teóricas.
+  // O step é (clientHeight - CONTEXT_PX): deixa CONTEXT_PX de contexto no topo.
   const navigate = useCallback((dir: "next"|"prev") => {
     if (busy.current) return;
     const el = scrollRef.current;
     if (!el) return;
 
-    const lineH  = Math.round(FONT_PX[fontSize] * FONT_LH[fontSize]);
-    const viewH  = el.clientHeight;
-    const lines  = Math.floor(viewH / lineH);
-    // Usa (lines - 1) linhas por página: 1 linha de contexto sempre visível
-    const step   = (lines - 1) * lineH;
-    const sign   = dir === "next" ? 1 : -1;
+    // Step: quase uma página completa, menos uma linha de contexto fixa
+    const step = el.clientHeight - CONTEXT_PX;
+    const sign = dir === "next" ? 1 : -1;
 
     if (pageAnim === "curl") {
       busy.current = true;
@@ -248,23 +256,20 @@ export default function ReadPage() {
 
     if (pageAnim === "slide") {
       busy.current = true;
-      // 1. Desliza para fora (220ms)
       setSlideDir(dir);
-      setSlideOut(true);
+      setSlideOut(true);           // fase out: fadeout + translateX
       setTimeout(() => {
-        // 2. Scroll instantâneo enquanto conteúdo está invisible
-        el.scrollBy({ top: sign * step, behavior: "auto" });
-        // 3. Volta para a posição inicial (sem transição) e depois entra com transição
-        setSlideOut(false);
+        el.scrollBy({ top: sign * step, behavior: "auto" }); // scroll instantâneo
+        setSlideOut(false);        // fase in: reaparece no novo sítio sem transição
         busy.current = false;
       }, 220);
       return;
     }
 
-    // fade: smooth nativo do browser (suave, sem glitch)
+    // fade: smooth nativo (browser interpola sem glitch)
     // none: instantâneo
     el.scrollBy({ top: sign * step, behavior: pageAnim === "none" ? "auto" : "smooth" });
-  }, [pageAnim, fontSize]);
+  }, [pageAnim]);
 
   // ── Teclado ──
   useEffect(() => {
@@ -290,44 +295,39 @@ export default function ReadPage() {
     const dy = t.clientY - tY.current;
     const dt = Date.now() - tT.current;
 
-    // Swipe horizontal
+    // Swipe horizontal → virar página
     if (Math.abs(dx) > SWIPE_MIN_X && Math.abs(dy) < SWIPE_MAX_Y && dt < 400) {
       e.preventDefault();
       navigate(dx < 0 ? "next" : "prev");
       return;
     }
 
-    // Double tap → toggle UI
+    // Double tap → toggle UI (sem timer — utilizador controla)
     const now = Date.now();
     if (now - lastTap.current < DOUBLE_TAP_MS) {
       e.preventDefault();
-      // Ao fazer double-tap: se UI estiver visível fecha-a (e o painel);
-      // se estiver oculta, mostra-a. SEM timer — o utilizador controla.
-      setUiVisible((v) => {
-        if (v) setShowPanel(false);
-        return !v;
-      });
+      if (uiVisible) {
+        hideUi();
+      } else {
+        setUiVisible(true);
+      }
       lastTap.current = 0;
       return;
     }
     lastTap.current = now;
 
-    // Toque simples: zonas laterais / centro
+    // Toque simples nas zonas laterais / centro
     const W = window.innerWidth;
     const H = window.innerHeight;
-    // Ignora toques nas zonas reservadas aos botões (topo e fundo)
-    if (t.clientY < 72 || t.clientY > H - 56) return;
+    if (t.clientY < 72 || t.clientY > H - 56) return; // reservado à UI
     if      (t.clientX < W * 0.28) navigate("prev");
     else if (t.clientX > W * 0.72) navigate("next");
-    else {
-      // Centro: mostrar UI sem timer (utilizador fecha com X)
-      setUiVisible(true);
-    }
-  }, [navigate]);
+    else                            setUiVisible(true); // centro: mostra botões
+  }, [navigate, uiVisible, hideUi]);
 
   const T = THEMES[theme];
 
-  // Estilo inline do wrapper de slide
+  // Estilo do wrapper de slide
   const slideStyle = useMemo((): React.CSSProperties => {
     if (pageAnim !== "slide") return {};
     if (slideOut) {
@@ -338,16 +338,10 @@ export default function ReadPage() {
         willChange: "opacity, transform",
       };
     }
-    return {
-      opacity:   1,
-      transform: "translateX(0)",
-      // Sem transição no "in": o scroll já posicionou o conteúdo,
-      // o wrapper apenas reaparece no sítio correcto (sem deslizar de volta)
-      transition: "none",
-    };
+    // Reaparece instantaneamente na nova posição (sem deslizar de volta)
+    return { opacity: 1, transform: "translateX(0)", transition: "none" };
   }, [pageAnim, slideOut, slideDir]);
 
-  // ── Loading / Error ──
   if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center" style={{ backgroundColor: T.bg }}>
@@ -375,22 +369,22 @@ export default function ReadPage() {
     );
   }
 
-  // top dos botões flutuantes: respeita notch em fullscreen e fora
   const btnTop = isFs
     ? "calc(0.75rem + env(safe-area-inset-top, 0px))"
     : "0.75rem";
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden select-none" style={{ backgroundColor: T.bg }}>
+    <div className="relative h-screen w-screen overflow-hidden select-none"
+      style={{ backgroundColor: T.bg }}>
 
-      {/* ══ BARRA PROGRESSO 2px (sempre visível) ══ */}
+      {/* ══ BARRA PROGRESSO ══ */}
       <div className="pointer-events-none fixed inset-x-0 top-0 z-50 h-[2px]"
         style={{ backgroundColor: `${T.accent}22` }}>
         <motion.div className="h-full" style={{ backgroundColor: T.accent }}
           animate={{ width: `${progress}%` }} transition={{ duration: 0.3, ease: "linear" }} />
       </div>
 
-      {/* ══ BOTÃO X — fecha o livro, topo esquerdo, z-[70] ══ */}
+      {/* ══ BOTÃO X — fecha o LIVRO ══ */}
       <AnimatePresence>
         {uiVisible && (
           <motion.button key="btn-x"
@@ -405,7 +399,7 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ══ BOTÃO DEFINIÇÕES — topo direito, z-[70] ══ */}
+      {/* ══ BOTÃO DEFINIÇÕES ══ */}
       <AnimatePresence>
         {uiVisible && (
           <motion.button key="btn-cfg"
@@ -425,7 +419,7 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ══ GRADIENTE TOPO (degrade visual p/ os botões) ══ */}
+      {/* ══ GRADIENTE TOPO ══ */}
       <AnimatePresence>
         {uiVisible && (
           <motion.div key="grad-t"
@@ -436,8 +430,15 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ══ PAINEL DE DEFINIÇÕES — z-[60], NÃO fecha automaticamente ══
-           Fecha com: botão Definições (toggle) OU o X dentro do cabeçalho do painel */}
+      {/* ══ BACKDROP: fechar painel ao tocar fora ══ */}
+      {uiVisible && showPanel && (
+        <div
+          className="fixed inset-0 z-[45]"
+          onPointerDown={() => { setShowPanel(false); setUiVisible(false); }}
+        />
+      )}
+
+      {/* ══ PAINEL DE DEFINIÇÕES — z-[60] ══ */}
       <AnimatePresence>
         {uiVisible && showPanel && (
           <motion.div key="panel"
@@ -452,7 +453,7 @@ export default function ReadPage() {
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* Cabeçalho com X próprio para fechar o PAINEL (não o livro) */}
+            {/* Cabeçalho com X para fechar só o PAINEL */}
             <div className="flex items-center justify-between border-b px-4 pt-3 pb-2"
               style={{ borderColor: `${T.accent}15` }}>
               <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
@@ -468,7 +469,6 @@ export default function ReadPage() {
             </div>
 
             <div className="space-y-4 p-4">
-
               {/* Letra */}
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
@@ -530,7 +530,7 @@ export default function ReadPage() {
                 </div>
               </div>
 
-              {/* Ecrã completo */}
+              {/* Ecrã */}
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
                   Ecrã
@@ -564,16 +564,13 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ══ SCROLL CONTAINER ══
-           O curl aplica-se aqui (rotateY anima o próprio container).
-           O slide NÃO aplica aqui — aplica-se ao wrapper interno. */}
+      {/* ══ SCROLL CONTAINER (curl aplica-se aqui) ══ */}
       <div
         ref={scrollRef}
         className={`rdr prose-book h-full w-full overflow-y-auto overscroll-none ${curlCls}`}
         style={{
           backgroundColor:         T.page,
           color:                   T.text,
-          // paddingTop respeita notch APENAS em fullscreen
           paddingTop:  isFs
             ? "calc(2.5rem + env(safe-area-inset-top, 0px))"
             : "2.5rem",

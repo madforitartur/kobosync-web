@@ -6,11 +6,7 @@ import JSZip from "jszip";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-type Chapter = {
-  id: string;
-  title: string;
-  html: string;
-};
+type Chapter = { id: string; title: string; html: string };
 
 export async function GET(
   _request: NextRequest,
@@ -84,6 +80,10 @@ export async function GET(
       ? opfPath.substring(0, opfPath.lastIndexOf("/") + 1)
       : "";
 
+    // Mapa de imagens: caminho no ZIP → data URL base64
+    // Pré-carrega todas as imagens do EPUB uma única vez
+    const imageMap = await buildImageMap(zip, opfDir);
+
     const manifest = parseManifest(opfContent);
     let spine = parseSpine(opfContent, manifest);
 
@@ -91,19 +91,15 @@ export async function GET(
       spine = Object.keys(zip.files)
         .filter((name) => /\.(x?html?)$/i.test(name) && !name.includes("META-INF"))
         .filter((name) => !name.endsWith(".css") && !name.endsWith(".xpgt"))
-        .filter((name) => !name.includes("docimages/"))
         .sort();
     }
 
     if (spine.length === 0) {
-      return NextResponse.json(
-        { error: "No HTML content found in EPUB" },
-        { status: 422 },
-      );
+      return NextResponse.json({ error: "No HTML content found in EPUB" }, { status: 422 });
     }
 
     const chapters: Chapter[] = [];
-    for (let i = 0; i < spine.length; i += 1) {
+    for (let i = 0; i < spine.length; i++) {
       const href = spine[i];
       const fullPath = opfDir + href;
       const file = zip.file(fullPath);
@@ -111,11 +107,15 @@ export async function GET(
 
       try {
         const html = await file.async("text");
-        const cleaned = cleanHtml(html);
+        // Diretório do capítulo para resolver src relativos
+        const chapterDir = fullPath.includes("/")
+          ? fullPath.substring(0, fullPath.lastIndexOf("/") + 1)
+          : opfDir;
+        const cleaned = cleanHtml(html, chapterDir, imageMap);
         const title = extractTitle(cleaned) || `Capítulo ${i + 1}`;
         chapters.push({ id: `c${i + 1}`, title, html: cleaned });
       } catch {
-        // skip
+        // skip capítulo inválido
       }
     }
 
@@ -123,10 +123,7 @@ export async function GET(
       return NextResponse.json({ error: "Could not load any chapters" }, { status: 422 });
     }
 
-    return NextResponse.json({
-      title: book.title,
-      chapters,
-    });
+    return NextResponse.json({ title: book.title, chapters });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown" },
@@ -135,114 +132,197 @@ export async function GET(
   }
 }
 
-// ================== HELPERS ==================
+// ── HELPERS ──────────────────────────────────────────────────────────────────
 
 function parseManifest(opfContent: string): Map<string, string> {
   const manifest = new Map<string, string>();
-  const itemRegex = /<item\b([^>]*?)\/?>/gi;
-  let match: RegExpExecArray | null;
-  while ((match = itemRegex.exec(opfContent)) !== null) {
-    const attrs = match[1];
-    const idMatch = attrs.match(/\bid\s*=\s*"([^"]+)"/i);
-    const hrefMatch = attrs.match(/\bhref\s*=\s*"([^"]+)"/i);
-    if (idMatch && hrefMatch) {
-      manifest.set(idMatch[1], hrefMatch[1]);
-    }
+  const re = /<item\b([^>]*?)\/?>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(opfContent)) !== null) {
+    const id   = m[1].match(/\bid\s*=\s*"([^"]+)"/i)?.[1];
+    const href = m[1].match(/\bhref\s*=\s*"([^"]+)"/i)?.[1];
+    if (id && href) manifest.set(id, href);
   }
   return manifest;
 }
 
-function parseSpine(
-  opfContent: string,
-  manifest: Map<string, string>,
-): string[] {
+function parseSpine(opfContent: string, manifest: Map<string, string>): string[] {
   const result: string[] = [];
   const spineMatch = opfContent.match(/<spine\b[^>]*>([\s\S]*?)<\/spine>/i);
   if (!spineMatch) return result;
-
-  const spineContent = spineMatch[1];
-  const itemrefRegex = /<itemref\b([^>]*?)\/?>/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = itemrefRegex.exec(spineContent)) !== null) {
-    const attrs = match[1];
-    const idrefMatch =
-      attrs.match(/\bidref\s*=\s*"([^"]+)"/i) ??
-      attrs.match(/\bidref\s*=\s*'([^']+)'/i) ??
-      attrs.match(/\bidref\s*=\s*([^\s>]+)/i);
-
-    if (idrefMatch) {
-      const id = idrefMatch[1];
-      const href = manifest.get(id);
-      result.push(href ?? id);
+  const re = /<itemref\b([^>]*?)\/?>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(spineMatch[1])) !== null) {
+    const idref =
+      m[1].match(/\bidref\s*=\s*"([^"]+)"/i)?.[1] ??
+      m[1].match(/\bidref\s*=\s*'([^']+)'/i)?.[1];
+    if (idref) {
+      result.push(manifest.get(idref) ?? idref);
     }
   }
-
   return result;
 }
 
 function extractTitle(html: string): string | null {
-  const titleMatch =
-    html.match(/<title>([^<]+)<\/title>/i) ??
-    html.match(/<h1[^>]*>([^<]+)<\/h1>/i) ??
-    html.match(/<h2[^>]*>([^<]+)<\/h2>/i);
-  return titleMatch?.[1]?.trim() || null;
+  return (
+    html.match(/<title>([^<]+)<\/title>/i)?.[1]?.trim() ??
+    html.match(/<h1[^>]*>([^<]+)<\/h1>/i)?.[1]?.trim() ??
+    html.match(/<h2[^>]*>([^<]+)<\/h2>/i)?.[1]?.trim() ??
+    null
+  );
 }
 
 /**
- * Limpa o HTML do EPUB para renderização linear no leitor.
- * Remove scripts, estilos embutidos e propriedades CSS inline que causam
- * layouts de duas colunas, floats, posicionamento absoluto, etc.
+ * Constrói um Map de caminhos de imagem (relativos ao opfDir) → data URL base64.
+ * Apenas imagens com tipos MIME conhecidos e tamanho ≤ 3 MB são incluídas.
  */
-function cleanHtml(html: string): string {
+async function buildImageMap(
+  zip: JSZip,
+  opfDir: string,
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB por imagem
+
+  const IMAGE_MIME: Record<string, string> = {
+    jpg: "image/jpeg", jpeg: "image/jpeg",
+    png: "image/png",  gif: "image/gif",
+    webp: "image/webp", svg: "image/svg+xml",
+    bmp: "image/bmp",
+  };
+
+  await Promise.all(
+    Object.entries(zip.files).map(async ([name, file]) => {
+      if (file.dir) return;
+      const ext = name.split(".").pop()?.toLowerCase() ?? "";
+      const mime = IMAGE_MIME[ext];
+      if (!mime) return;
+
+      try {
+        const data = await file.async("uint8array");
+        if (data.length > MAX_IMAGE_BYTES) return; // ignora imagens demasiado grandes
+
+        // Converte para base64
+        let binary = "";
+        const chunk = 8192;
+        for (let i = 0; i < data.length; i += chunk) {
+          binary += String.fromCharCode(...data.slice(i, i + chunk));
+        }
+        const b64 = btoa(binary);
+        const dataUrl = `data:${mime};base64,${b64}`;
+
+        // Guarda por caminho completo e por caminho relativo ao opfDir
+        map.set(name, dataUrl);
+        if (name.startsWith(opfDir)) {
+          map.set(name.slice(opfDir.length), dataUrl);
+        }
+        // Guarda também só pelo nome do ficheiro (fallback)
+        const basename = name.split("/").pop()!;
+        if (!map.has(basename)) map.set(basename, dataUrl);
+      } catch {
+        // ignora imagem inválida
+      }
+    }),
+  );
+
+  return map;
+}
+
+/** Resolve um src relativo a partir do directório do capítulo */
+function resolveImageSrc(src: string, chapterDir: string, imageMap: Map<string, string>): string {
+  if (src.startsWith("data:") || src.startsWith("http")) return src;
+
+  // Remove fragment e query
+  const cleanSrc = src.split("?")[0].split("#")[0];
+
+  // Tentativas de resolução: caminho completo → relativo ao capítulo → basename
+  const candidates = [
+    chapterDir + cleanSrc,
+    cleanSrc,
+    cleanSrc.replace(/^\.\//, ""),
+    cleanSrc.replace(/^\.\.\//, ""),
+    cleanSrc.split("/").pop() ?? cleanSrc,
+  ];
+
+  for (const c of candidates) {
+    const found = imageMap.get(c);
+    if (found) return found;
+  }
+
+  // Não encontrou — deixa o src original (o browser mostrará imagem quebrada)
+  return src;
+}
+
+/**
+ * Limpa e prepara o HTML de um capítulo EPUB:
+ * - Remove scripts, estilos em bloco, comentários
+ * - Filtra propriedades CSS inline perigosas (layout, colunas, etc.)
+ * - Converte src de <img> para data URLs base64
+ */
+function cleanHtml(
+  html: string,
+  chapterDir: string,
+  imageMap: Map<string, string>,
+): string {
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   let content = bodyMatch?.[1] ?? html;
 
-  // 1. Remove blocos de script, style e comentários HTML
+  // 1. Remove scripts, estilos e comentários
   content = content
     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
     .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
     .replace(/<!--[\s\S]*?-->/g, "");
 
-  // 2. Filtra atributos style="" inline:
-  //    Remove propriedades de layout (float, column, position, width, height, margin fixo)
-  //    Mantém apenas formatação de texto segura
-  const SAFE_CSS_PROP = /^(font-(style|weight|variant|size)|text-(decoration|align|indent|transform)|color|line-height|letter-spacing|vertical-align|margin-(left|right)|padding-(left|right)|font-family)$/i;
+  // 2. Substitui src das imagens por data URLs (inline, sem pedidos externos)
+  content = content.replace(
+    /<img\b([^>]*?)>/gi,
+    (_full: string, attrs: string) => {
+      // Extrai src
+      const srcMatch = attrs.match(/\bsrc\s*=\s*"([^"]*?)"/i)
+        ?? attrs.match(/\bsrc\s*=\s*'([^']*?)'/i);
 
-  content = content.replace(/\bstyle\s*=\s*"([^"]*)"/gi, (_full: string, val: string) => {
-    const kept = val
-      .split(/\s*;\s*/)
-      .map((r) => r.trim())
-      .filter((rule) => {
-        if (!rule) return false;
-        const prop = rule.split(":")[0]?.trim() ?? "";
-        return SAFE_CSS_PROP.test(prop);
-      })
-      .join("; ");
-    return kept ? `style="${kept}"` : "";
+      if (!srcMatch) return `<img${attrs}>`;
+
+      const originalSrc = srcMatch[1];
+      const resolvedSrc = resolveImageSrc(originalSrc, chapterDir, imageMap);
+
+      // Remove src original e adiciona o resolvido; mantém alt, width, height
+      const cleanedAttrs = attrs
+        .replace(/\bsrc\s*=\s*(?:"[^"]*"|'[^']*')/gi, "")
+        .replace(/\bstyle\s*=\s*(?:"[^"]*"|'[^']*')/gi, "") // remove style para não forçar dimensões
+        .trim();
+
+      // Extrai alt para acessibilidade
+      const alt = attrs.match(/\balt\s*=\s*"([^"]*)"/i)?.[1]
+        ?? attrs.match(/\balt\s*=\s*'([^']*)'/i)?.[1]
+        ?? "";
+
+      return `<img src="${resolvedSrc}" alt="${alt}" loading="lazy" style="max-width:100%;height:auto;display:block;margin:0.75em auto;" ${cleanedAttrs}>`;
+    },
+  );
+
+  // 3. Filtra style inline — mantém apenas formatação de texto segura
+  const SAFE = /^(font-(style|weight|variant|size|family)|text-(decoration|align|indent|transform)|color|line-height|letter-spacing|vertical-align|margin-(left|right)|padding-(left|right))$/i;
+
+  const filterStyle = (val: string) => {
+    const kept = val.split(/\s*;\s*/).map(r => r.trim()).filter(rule => {
+      if (!rule) return false;
+      return SAFE.test(rule.split(":")[0]?.trim() ?? "");
+    }).join("; ");
+    return kept;
+  };
+
+  content = content.replace(/\bstyle\s*=\s*"([^"]*)"/gi, (_f, v) => {
+    const k = filterStyle(v); return k ? `style="${k}"` : "";
+  });
+  content = content.replace(/\bstyle\s*=\s*'([^']*)'/gi, (_f, v) => {
+    const k = filterStyle(v); return k ? `style="${k}"` : "";
   });
 
-  // Idem para aspas simples
-  content = content.replace(/\bstyle\s*=\s*'([^']*)'/gi, (_full: string, val: string) => {
-    const kept = val
-      .split(/\s*;\s*/)
-      .map((r) => r.trim())
-      .filter((rule) => {
-        if (!rule) return false;
-        const prop = rule.split(":")[0]?.trim() ?? "";
-        return SAFE_CSS_PROP.test(prop);
-      })
-      .join("; ");
-    return kept ? `style="${kept}"` : "";
-  });
-
-  // 3. Filtra classes CSS do EPUB que activam layouts de coluna/float
-  content = content.replace(/\bclass\s*=\s*"([^"]*)"/gi, (_full: string, classes: string) => {
-    const filtered = classes
-      .split(/\s+/)
-      .filter((c) => c && !/^(col\d*|float|frame|page(-break)?|layout|two|multi|dual|sidebar|aside|calibre_col)/i.test(c))
-      .join(" ")
-      .trim();
+  // 4. Filtra classes que activam layouts de coluna/float
+  content = content.replace(/\bclass\s*=\s*"([^"]*)"/gi, (_f, classes: string) => {
+    const filtered = classes.split(/\s+/)
+      .filter(c => c && !/^(col\d*|float|frame|page(-break)?|layout|two|multi|dual|sidebar|aside|calibre_col)/i.test(c))
+      .join(" ").trim();
     return filtered ? `class="${filtered}"` : "";
   });
 
