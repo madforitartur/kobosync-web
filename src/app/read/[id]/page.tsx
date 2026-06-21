@@ -230,20 +230,51 @@ export default function ReadPage() {
     else tryFs().then((ok) => { if (ok) setIsFs(true); });
   }, []);
 
+  // ── Ref ao elemento de conteúdo (para ler lineHeight real do DOM) ──
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // ── Calcula o step alinhado à linha mais próxima ──
+  // Lê o lineHeight real do DOM via getComputedStyle para garantir que
+  // o scroll aterra sempre no início de uma linha, qualquer que seja a fonte.
+  const calcStep = useCallback((el: HTMLDivElement, dir: "next"|"prev"): number => {
+    // lineHeight real em px (fallback 24px)
+    let lineH = 24;
+    if (contentRef.current) {
+      const cs = window.getComputedStyle(contentRef.current);
+      const lh = parseFloat(cs.lineHeight);
+      if (lh > 0) lineH = lh;
+    }
+
+    const viewH   = el.clientHeight;
+    // Quantas linhas inteiras cabem no ecrã, com CONTEXT_PX de margem
+    const lines   = Math.floor((viewH - CONTEXT_PX) / lineH);
+    const rawStep = lines * lineH;
+
+    if (dir === "next") {
+      // Alinhar scrollTop+rawStep ao múltiplo de lineH mais próximo
+      const target  = el.scrollTop + rawStep;
+      const aligned = Math.round(target / lineH) * lineH;
+      return aligned - el.scrollTop;
+    } else {
+      const target  = el.scrollTop - rawStep;
+      const aligned = Math.round(target / lineH) * lineH;
+      return aligned - el.scrollTop; // valor negativo
+    }
+  }, []);
+
   // ── Navegação por página ──
   const navigate = useCallback((dir: "next"|"prev") => {
     if (busy.current) return;
     const el = scrollRef.current;
     if (!el) return;
 
-    const step = el.clientHeight - CONTEXT_PX;
-    const sign = dir === "next" ? 1 : -1;
+    const step = calcStep(el, dir);
 
     if (pageAnim === "curl") {
       busy.current = true;
       setCurlCls(dir === "next" ? "curl-n" : "curl-p");
       setTimeout(() => {
-        el.scrollBy({ top: sign * step, behavior: "auto" });
+        el.scrollBy({ top: step, behavior: "auto" });
         setCurlCls("");
         busy.current = false;
       }, 380);
@@ -255,15 +286,22 @@ export default function ReadPage() {
       setSlideDir(dir);
       setSlideOut(true);
       setTimeout(() => {
-        el.scrollBy({ top: sign * step, behavior: "auto" });
+        el.scrollBy({ top: step, behavior: "auto" });
         setSlideOut(false);
         busy.current = false;
       }, 220);
       return;
     }
 
-    el.scrollBy({ top: sign * step, behavior: pageAnim === "none" ? "auto" : "smooth" });
-  }, [pageAnim]);
+    // fade: scrollTo com comportamento smooth para evitar glitch de posição
+    // none: instantâneo
+    if (pageAnim === "none") {
+      el.scrollBy({ top: step, behavior: "auto" });
+    } else {
+      // Para fade usamos scrollTo com a posição calculada para garantir alinhamento
+      el.scrollTo({ top: el.scrollTop + step, behavior: "smooth" });
+    }
+  }, [pageAnim, calcStep]);
 
   // ── Teclado ──
   useEffect(() => {
@@ -434,32 +472,18 @@ export default function ReadPage() {
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* Cabeçalho */}
-            <div className="flex items-center justify-between px-4 pt-4 pb-2">
-              <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
-                Definições · {book.title.slice(0, 30)}{book.title.length > 30 ? "…" : ""}
-              </p>
-              <div className="flex items-center gap-2">
-                {/* Botão fechar livro */}
-                <button
-                  onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
-                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-bold active:scale-90 transition-transform"
-                  style={{ backgroundColor: `${T.accent}15`, color: T.text }}
-                  aria-label="Fechar livro">
-                  <X size={13} /> Fechar livro
-                </button>
-                {/* Botão fechar painel */}
-                <button
-                  onPointerDown={(e) => { e.stopPropagation(); setShowPanel(false); }}
-                  className="flex h-8 w-8 items-center justify-center rounded-full active:scale-90 transition-transform"
-                  style={{ backgroundColor: `${T.accent}15`, color: T.text }}
-                  aria-label="Fechar painel">
-                  <X size={14} />
-                </button>
-              </div>
+            {/* X discreto — único controlo no topo do painel */}
+            <div className="flex justify-end px-3 pt-3 pb-0">
+              <button
+                onPointerDown={(e) => { e.stopPropagation(); setShowPanel(false); }}
+                className="flex h-7 w-7 items-center justify-center rounded-full active:scale-90 transition-transform"
+                style={{ backgroundColor: `${T.accent}15`, color: T.accent }}
+                aria-label="Fechar painel">
+                <X size={13} />
+              </button>
             </div>
 
-            <div className="space-y-4 px-4 pb-5 pt-1">
+            <div className="space-y-4 px-4 pb-5 pt-2">
               {/* Tamanho da letra */}
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
@@ -580,6 +604,7 @@ export default function ReadPage() {
       >
         <div style={slideStyle}>
           <div
+            ref={contentRef}
             dangerouslySetInnerHTML={{ __html: fullHtml }}
             className={`${FONT_CLASS[fontSize]} select-text`}
             style={{
