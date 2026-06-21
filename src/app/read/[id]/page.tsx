@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, BookOpen, Loader2, Maximize, Minimize, Settings2, X } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, Maximize, Minimize, X } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
 
@@ -15,10 +15,8 @@ type PageAnim = "none" | "fade" | "slide" | "curl";
 
 const CACHE_PREFIX  = "kobosync:reading:";
 const DOUBLE_TAP_MS = 280;
-const SWIPE_MIN_X   = 48;
-const SWIPE_MAX_Y   = 80;
-// Linha de contexto fixa (px) que fica visível no topo da página seguinte
-const CONTEXT_PX    = 32;
+const SWIPE_MIN_X   = 40;   // px mínimo horizontal para contar como swipe de página
+const CONTEXT_PX    = 32;   // px de contexto no topo após mudança de página
 
 const FONT_CLASS: Record<FontSize, string> = {
   xs: "text-[13px] leading-relaxed",
@@ -48,6 +46,20 @@ const PAGE_ANIMS: { id:PageAnim; label:string; icon:string }[] = [
 
 const READER_CSS = `
 .rdr::-webkit-scrollbar { display: none; }
+
+/* Sem sublinhado em links do EPUB */
+.prose-book a { text-decoration: none !important; color: inherit !important; }
+
+/* Imagens inline */
+.prose-book img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 0.75em auto;
+  border-radius: 4px;
+}
+
+/* Animação curl */
 @keyframes curlN {
   from { transform: perspective(1400px) rotateY(0deg);   transform-origin:left center;  opacity:1 }
   to   { transform: perspective(1400px) rotateY(-90deg); transform-origin:left center;  opacity:0 }
@@ -58,14 +70,6 @@ const READER_CSS = `
 }
 .curl-n { animation: curlN 0.38s cubic-bezier(.4,0,.2,1) forwards; }
 .curl-p { animation: curlP 0.38s cubic-bezier(.4,0,.2,1) forwards; }
-/* Imagens inline do EPUB */
-.prose-book img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  margin: 0.75em auto;
-  border-radius: 4px;
-}
 `;
 
 async function tryFs(): Promise<boolean> {
@@ -102,19 +106,18 @@ export default function ReadPage() {
   const [fontSize,  setFontSize]  = useState<FontSize>("md");
   const [theme,     setTheme]     = useState<Theme>("light");
   const [pageAnim,  setPageAnim]  = useState<PageAnim>("fade");
-  // UI (botões + painel) — começa oculta
-  const [uiVisible, setUiVisible] = useState(false);
+
+  // Estado único: só o painel (sem botões separados)
+  // false = tudo oculto; true = painel visível
   const [showPanel, setShowPanel] = useState(false);
+
   const [restored,  setRestored]  = useState(false);
   const [progress,  setProgress]  = useState(0);
   const [isFs,      setIsFs]      = useState(false);
 
-  // Slide: anima o wrapper interno
   const [slideOut, setSlideOut] = useState(false);
   const [slideDir, setSlideDir] = useState<"next"|"prev">("next");
-
-  // Curl: classe CSS no scroll container
-  const [curlCls, setCurlCls] = useState("");
+  const [curlCls,  setCurlCls]  = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const skipSave  = useRef(false);
@@ -123,6 +126,8 @@ export default function ReadPage() {
   const tX = useRef(0);
   const tY = useRef(0);
   const tT = useRef(0);
+  // Rastreia se houve movimento vertical significativo (para não confundir com swipe)
+  const didScroll = useRef(false);
 
   // ── CSS ──
   useEffect(() => {
@@ -225,21 +230,12 @@ export default function ReadPage() {
     else tryFs().then((ok) => { if (ok) setIsFs(true); });
   }, []);
 
-  // ── Esconder UI (botões + painel) ──
-  const hideUi = useCallback(() => {
-    setUiVisible(false);
-    setShowPanel(false);
-  }, []);
-
-  // ── Navegação ──
-  // CORRECÇÃO: usa clientHeight real do DOM, sem tentar alinhar a linhas teóricas.
-  // O step é (clientHeight - CONTEXT_PX): deixa CONTEXT_PX de contexto no topo.
+  // ── Navegação por página ──
   const navigate = useCallback((dir: "next"|"prev") => {
     if (busy.current) return;
     const el = scrollRef.current;
     if (!el) return;
 
-    // Step: quase uma página completa, menos uma linha de contexto fixa
     const step = el.clientHeight - CONTEXT_PX;
     const sign = dir === "next" ? 1 : -1;
 
@@ -257,36 +253,53 @@ export default function ReadPage() {
     if (pageAnim === "slide") {
       busy.current = true;
       setSlideDir(dir);
-      setSlideOut(true);           // fase out: fadeout + translateX
+      setSlideOut(true);
       setTimeout(() => {
-        el.scrollBy({ top: sign * step, behavior: "auto" }); // scroll instantâneo
-        setSlideOut(false);        // fase in: reaparece no novo sítio sem transição
+        el.scrollBy({ top: sign * step, behavior: "auto" });
+        setSlideOut(false);
         busy.current = false;
       }, 220);
       return;
     }
 
-    // fade: smooth nativo (browser interpola sem glitch)
-    // none: instantâneo
     el.scrollBy({ top: sign * step, behavior: pageAnim === "none" ? "auto" : "smooth" });
   }, [pageAnim]);
 
   // ── Teclado ──
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
-      if (e.key === "Escape")                               { saveAndClose(); return; }
+      if (e.key === "Escape") {
+        if (showPanel) { setShowPanel(false); return; }
+        saveAndClose(); return;
+      }
       if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); navigate("next"); }
       if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigate("prev"); }
       if (e.key === "f" || e.key === "F")                  { toggleFs(); }
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [saveAndClose, navigate, toggleFs]);
+  }, [saveAndClose, navigate, toggleFs, showPanel]);
 
-  // ── Touch ──
+  // ── Touch handlers ──
+  // Estratégia:
+  // • O scroll vertical é 100% nativo — o browser trata-o, não interceptamos.
+  // • Só interceptamos gestos CLARAMENTE horizontais (|dx| > |dy| * 2 e dx > SWIPE_MIN_X).
+  // • Double-tap no centro → toggle painel.
+  // • Toque simples nas zonas laterais → virar página.
+  // • Toque no centro → abrir painel.
+
   const onTouchStart = useCallback((e: React.TouchEvent) => {
     const t = e.touches[0];
-    tX.current = t.clientX; tY.current = t.clientY; tT.current = Date.now();
+    tX.current = t.clientX;
+    tY.current = t.clientY;
+    tT.current = Date.now();
+    didScroll.current = false;
+  }, []);
+
+  const onTouchMove = useCallback((e: React.TouchEvent) => {
+    // Marca que houve movimento vertical significativo
+    const dy = Math.abs(e.touches[0].clientY - tY.current);
+    if (dy > 8) didScroll.current = true;
   }, []);
 
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
@@ -294,40 +307,43 @@ export default function ReadPage() {
     const dx = t.clientX - tX.current;
     const dy = t.clientY - tY.current;
     const dt = Date.now() - tT.current;
+    const adx = Math.abs(dx);
+    const ady = Math.abs(dy);
 
-    // Swipe horizontal → virar página
-    if (Math.abs(dx) > SWIPE_MIN_X && Math.abs(dy) < SWIPE_MAX_Y && dt < 400) {
+    // Swipe horizontal: deve ser claramente horizontal (adx > ady*2)
+    // e rápido o suficiente e longo o suficiente
+    if (adx > SWIPE_MIN_X && adx > ady * 2 && dt < 400) {
       e.preventDefault();
       navigate(dx < 0 ? "next" : "prev");
       return;
     }
 
-    // Double tap → toggle UI (sem timer — utilizador controla)
+    // Se houve scroll vertical, ignorar gestos de tap
+    if (didScroll.current) return;
+
+    // Double tap → toggle painel
     const now = Date.now();
     if (now - lastTap.current < DOUBLE_TAP_MS) {
       e.preventDefault();
-      if (uiVisible) {
-        hideUi();
-      } else {
-        setUiVisible(true);
-      }
+      setShowPanel((v) => !v);
       lastTap.current = 0;
       return;
     }
     lastTap.current = now;
 
-    // Toque simples nas zonas laterais / centro
+    // Toque simples
     const W = window.innerWidth;
     const H = window.innerHeight;
-    if (t.clientY < 72 || t.clientY > H - 56) return; // reservado à UI
-    if      (t.clientX < W * 0.28) navigate("prev");
-    else if (t.clientX > W * 0.72) navigate("next");
-    else                            setUiVisible(true); // centro: mostra botões
-  }, [navigate, uiVisible, hideUi]);
+    if (ady > 10) return;                          // micro-scroll — ignora
+    if (t.clientY < 72 || t.clientY > H - 56) return; // zona da UI
+
+    if      (t.clientX < W * 0.25) navigate("prev");
+    else if (t.clientX > W * 0.75) navigate("next");
+    else                            setShowPanel(true); // centro → abre painel
+  }, [navigate]);
 
   const T = THEMES[theme];
 
-  // Estilo do wrapper de slide
   const slideStyle = useMemo((): React.CSSProperties => {
     if (pageAnim !== "slide") return {};
     if (slideOut) {
@@ -338,10 +354,10 @@ export default function ReadPage() {
         willChange: "opacity, transform",
       };
     }
-    // Reaparece instantaneamente na nova posição (sem deslizar de volta)
     return { opacity: 1, transform: "translateX(0)", transition: "none" };
   }, [pageAnim, slideOut, slideDir]);
 
+  // ── Loading / Error ──
   if (loading) {
     return (
       <div className="flex h-screen w-screen items-center justify-center" style={{ backgroundColor: T.bg }}>
@@ -369,9 +385,9 @@ export default function ReadPage() {
     );
   }
 
-  const btnTop = isFs
-    ? "calc(0.75rem + env(safe-area-inset-top, 0px))"
-    : "0.75rem";
+  const panelTop = isFs
+    ? "calc(0px + env(safe-area-inset-top, 0px))"
+    : "0px";
 
   return (
     <div className="relative h-screen w-screen overflow-hidden select-none"
@@ -384,92 +400,67 @@ export default function ReadPage() {
           animate={{ width: `${progress}%` }} transition={{ duration: 0.3, ease: "linear" }} />
       </div>
 
-      {/* ══ BOTÃO X — fecha o LIVRO ══ */}
+      {/* ══ BACKDROP — fecha o painel ao tocar fora ══ */}
       <AnimatePresence>
-        {uiVisible && (
-          <motion.button key="btn-x"
-            initial={{ opacity:0, scale:0.8 }} animate={{ opacity:1, scale:1 }}
-            exit={{ opacity:0, scale:0.8 }} transition={{ duration:0.14 }}
-            onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
-            className="fixed left-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-90 transition-transform"
-            style={{ top: btnTop, backgroundColor: T.page, color: T.text, border: `1px solid ${T.accent}28` }}
-            aria-label="Fechar">
-            <X size={18} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* ══ BOTÃO DEFINIÇÕES ══ */}
-      <AnimatePresence>
-        {uiVisible && (
-          <motion.button key="btn-cfg"
-            initial={{ opacity:0, scale:0.8 }} animate={{ opacity:1, scale:1 }}
-            exit={{ opacity:0, scale:0.8 }} transition={{ duration:0.14 }}
-            onPointerDown={(e) => { e.stopPropagation(); setShowPanel((v) => !v); }}
-            className="fixed right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full shadow-xl active:scale-90 transition-transform"
-            style={{
-              top: btnTop,
-              backgroundColor: showPanel ? T.text : T.page,
-              color:           showPanel ? T.page : T.text,
-              border: `1px solid ${T.accent}28`,
-            }}
-            aria-label="Definições">
-            <Settings2 size={17} />
-          </motion.button>
-        )}
-      </AnimatePresence>
-
-      {/* ══ GRADIENTE TOPO ══ */}
-      <AnimatePresence>
-        {uiVisible && (
-          <motion.div key="grad-t"
-            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
-            className="pointer-events-none fixed inset-x-0 top-0 z-40 h-28"
-            style={{ background: `linear-gradient(to bottom, ${T.bg}d8 0%, ${T.bg}00 100%)` }}
+        {showPanel && (
+          <motion.div
+            key="backdrop"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[55]"
+            style={{ backgroundColor: "rgba(0,0,0,0.25)" }}
+            onPointerDown={() => setShowPanel(false)}
           />
         )}
       </AnimatePresence>
 
-      {/* ══ BACKDROP: fechar painel ao tocar fora ══ */}
-      {uiVisible && showPanel && (
-        <div
-          className="fixed inset-0 z-[45]"
-          onPointerDown={() => { setShowPanel(false); setUiVisible(false); }}
-        />
-      )}
-
-      {/* ══ PAINEL DE DEFINIÇÕES — z-[60] ══ */}
+      {/* ══ PAINEL DESLIZANTE DO TOPO — z-[60] ══
+           Aparece directamente sem botões intermédios.
+           Fecha com: X interno, backdrop, double-tap, Escape. */}
       <AnimatePresence>
-        {uiVisible && showPanel && (
-          <motion.div key="panel"
-            initial={{ opacity:0, y:-10 }} animate={{ opacity:1, y:0 }}
-            exit={{ opacity:0, y:-10 }} transition={{ duration:0.18 }}
-            className="fixed inset-x-3 z-[60] overflow-y-auto rounded-2xl shadow-2xl"
+        {showPanel && (
+          <motion.div
+            key="panel"
+            initial={{ opacity:0, y:-20 }}
+            animate={{ opacity:1, y:0 }}
+            exit={{ opacity:0, y:-20 }}
+            transition={{ duration:0.2, ease:"easeOut" }}
+            className="fixed inset-x-3 z-[60] overflow-y-auto rounded-b-2xl shadow-2xl"
             style={{
-              top:       `calc(4.5rem + ${isFs ? "env(safe-area-inset-top, 0px)" : "0px"})`,
-              maxHeight: `calc(100vh - 5.5rem - ${isFs ? "env(safe-area-inset-top, 0px)" : "0px"} - env(safe-area-inset-bottom, 0px))`,
+              top:             panelTop,
+              maxHeight:       `calc(90vh - env(safe-area-inset-bottom, 0px))`,
               backgroundColor: T.page,
-              border: `1px solid ${T.accent}18`,
+              border:          `1px solid ${T.accent}18`,
+              borderTop:       "none",
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* Cabeçalho com X para fechar só o PAINEL */}
-            <div className="flex items-center justify-between border-b px-4 pt-3 pb-2"
-              style={{ borderColor: `${T.accent}15` }}>
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between px-4 pt-4 pb-2">
               <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
-                Definições de leitura
+                Definições · {book.title.slice(0, 30)}{book.title.length > 30 ? "…" : ""}
               </p>
-              <button
-                onPointerDown={(e) => { e.stopPropagation(); setShowPanel(false); }}
-                className="flex h-7 w-7 items-center justify-center rounded-full active:scale-90 transition-transform"
-                style={{ backgroundColor: `${T.accent}15`, color: T.text }}
-                aria-label="Fechar painel">
-                <X size={13} />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Botão fechar livro */}
+                <button
+                  onPointerDown={(e) => { e.stopPropagation(); saveAndClose(); }}
+                  className="flex h-8 items-center gap-1.5 rounded-full px-3 text-[11px] font-bold active:scale-90 transition-transform"
+                  style={{ backgroundColor: `${T.accent}15`, color: T.text }}
+                  aria-label="Fechar livro">
+                  <X size={13} /> Fechar livro
+                </button>
+                {/* Botão fechar painel */}
+                <button
+                  onPointerDown={(e) => { e.stopPropagation(); setShowPanel(false); }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full active:scale-90 transition-transform"
+                  style={{ backgroundColor: `${T.accent}15`, color: T.text }}
+                  aria-label="Fechar painel">
+                  <X size={14} />
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-4 p-4">
-              {/* Letra */}
+            <div className="space-y-4 px-4 pb-5 pt-1">
+              {/* Tamanho da letra */}
               <div>
                 <p className="mb-2 text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>
                   Tamanho da letra
@@ -550,7 +541,7 @@ export default function ReadPage() {
               {/* Rodapé */}
               <div className="flex items-center justify-between border-t pt-2 text-[9px]"
                 style={{ borderColor: `${T.accent}15`, color: T.accent }}>
-                <span>2× toque · swipe · toque esq/dir · F fullscreen</span>
+                <span>{progress}% · 2× toque ou toque no centro → este menu</span>
                 <button
                   onPointerDown={() => {
                     try { localStorage.removeItem(CACHE_PREFIX + bookId); setRestored(false); } catch {}
@@ -564,7 +555,7 @@ export default function ReadPage() {
         )}
       </AnimatePresence>
 
-      {/* ══ SCROLL CONTAINER (curl aplica-se aqui) ══ */}
+      {/* ══ SCROLL CONTAINER ══ */}
       <div
         ref={scrollRef}
         className={`rdr prose-book h-full w-full overflow-y-auto overscroll-none ${curlCls}`}
@@ -584,9 +575,9 @@ export default function ReadPage() {
           } : {}),
         } as React.CSSProperties}
         onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
       >
-        {/* Wrapper interno — slide anima este elemento */}
         <div style={slideStyle}>
           <div
             dangerouslySetInnerHTML={{ __html: fullHtml }}
@@ -608,26 +599,21 @@ export default function ReadPage() {
         </div>
       </div>
 
-      {/* ══ FOOTER (autor + %) ══ */}
-      <AnimatePresence>
-        {uiVisible && (
-          <motion.div key="footer"
-            initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }}
-            exit={{ opacity:0, y:12 }} transition={{ duration:0.16 }}
-            className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex items-center justify-between px-5 pt-6"
-            style={{
-              paddingBottom: `calc(0.75rem + env(safe-area-inset-bottom, 0px))`,
-              background:    `linear-gradient(to top, ${T.bg}d8 50%, ${T.bg}00 100%)`,
-            }}>
-            <span className="text-[11px] font-medium" style={{ color: T.accent }}>
-              {book.author ?? ""}
-            </span>
-            <span className="text-[11px] font-bold tabular-nums" style={{ color: T.accent }}>
-              {progress}%
-            </span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* ══ BARRA INFERIOR — progresso + autor (sempre visível, discreta) ══ */}
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex items-center justify-between px-4"
+        style={{
+          paddingBottom: `calc(0.5rem + env(safe-area-inset-bottom, 0px))`,
+          paddingTop:    "1.5rem",
+          background:    `linear-gradient(to top, ${T.bg}cc 40%, ${T.bg}00 100%)`,
+        }}>
+        <span className="text-[10px] font-medium opacity-70" style={{ color: T.accent }}>
+          {book.author ?? ""}
+        </span>
+        <span className="text-[10px] font-bold tabular-nums opacity-70" style={{ color: T.accent }}>
+          {progress}%
+        </span>
+      </div>
     </div>
   );
 }

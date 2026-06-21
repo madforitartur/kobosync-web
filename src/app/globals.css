@@ -312,8 +312,8 @@
 }
 
 .prose-book a {
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
+  color: inherit;
 }
 
 .prose-book img {

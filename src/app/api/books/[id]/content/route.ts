@@ -301,7 +301,8 @@ function cleanHtml(
   );
 
   // 3. Filtra style inline — mantém apenas formatação de texto segura
-  const SAFE = /^(font-(style|weight|variant|size|family)|text-(decoration|align|indent|transform)|color|line-height|letter-spacing|vertical-align|margin-(left|right)|padding-(left|right))$/i;
+  // Nota: text-decoration excluído intencionalmente — EPUBs usam underline em blocos de texto
+  const SAFE = /^(font-(style|weight|variant|size|family)|text-(align|indent|transform)|color|line-height|letter-spacing|vertical-align|margin-(left|right)|padding-(left|right))$/i;
 
   const filterStyle = (val: string) => {
     const kept = val.split(/\s*;\s*/).map(r => r.trim()).filter(rule => {
