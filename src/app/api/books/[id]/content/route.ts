@@ -82,7 +82,7 @@ export async function GET(
 
     // Mapa de imagens: caminho no ZIP → data URL base64
     // Pré-carrega todas as imagens do EPUB uma única vez
-    const imageMap = await buildImageMap(zip, opfDir);
+    const imageMap = buildImageMap(zip, opfDir, id);
 
     const manifest = parseManifest(opfContent);
     let spine = parseSpine(opfContent, manifest);
@@ -173,56 +173,34 @@ function extractTitle(html: string): string | null {
 }
 
 /**
- * Constrói um Map de caminhos de imagem (relativos ao opfDir) → data URL base64.
- * Apenas imagens com tipos MIME conhecidos e tamanho ≤ 3 MB são incluídas.
+ * Constrói um Map de caminhos de imagem → URL do endpoint /api/books/[id]/image.
+ * Não converte para base64 — serve as imagens via HTTP com cache de 7 dias.
+ * Resultado: resposta JSON muito mais pequena e rápida.
  */
-async function buildImageMap(
+function buildImageMap(
   zip: JSZip,
   opfDir: string,
-): Promise<Map<string, string>> {
+  bookId: string,
+): Map<string, string> {
   const map = new Map<string, string>();
-  const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB por imagem
 
-  const IMAGE_MIME: Record<string, string> = {
-    jpg: "image/jpeg", jpeg: "image/jpeg",
-    png: "image/png",  gif: "image/gif",
-    webp: "image/webp", svg: "image/svg+xml",
-    bmp: "image/bmp",
-  };
+  const IMAGE_EXTS = new Set(["jpg","jpeg","png","gif","webp","svg","bmp"]);
 
-  await Promise.all(
-    Object.entries(zip.files).map(async ([name, file]) => {
-      if (file.dir) return;
-      const ext = name.split(".").pop()?.toLowerCase() ?? "";
-      const mime = IMAGE_MIME[ext];
-      if (!mime) return;
+  for (const name of Object.keys(zip.files)) {
+    if (zip.files[name].dir) continue;
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    if (!IMAGE_EXTS.has(ext)) continue;
 
-      try {
-        const data = await file.async("uint8array");
-        if (data.length > MAX_IMAGE_BYTES) return; // ignora imagens demasiado grandes
+    // URL que o browser irá buscar: /api/books/[id]/image?path=OEBPS/images/x.jpg
+    const url = `/api/books/${bookId}/image?path=${encodeURIComponent(name)}`;
 
-        // Converte para base64
-        let binary = "";
-        const chunk = 8192;
-        for (let i = 0; i < data.length; i += chunk) {
-          binary += String.fromCharCode(...data.slice(i, i + chunk));
-        }
-        const b64 = btoa(binary);
-        const dataUrl = `data:${mime};base64,${b64}`;
-
-        // Guarda por caminho completo e por caminho relativo ao opfDir
-        map.set(name, dataUrl);
-        if (name.startsWith(opfDir)) {
-          map.set(name.slice(opfDir.length), dataUrl);
-        }
-        // Guarda também só pelo nome do ficheiro (fallback)
-        const basename = name.split("/").pop()!;
-        if (!map.has(basename)) map.set(basename, dataUrl);
-      } catch {
-        // ignora imagem inválida
-      }
-    }),
-  );
+    map.set(name, url);
+    if (name.startsWith(opfDir)) {
+      map.set(name.slice(opfDir.length), url);
+    }
+    const basename = name.split("/").pop()!;
+    if (!map.has(basename)) map.set(basename, url);
+  }
 
   return map;
 }
