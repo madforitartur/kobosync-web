@@ -73,7 +73,7 @@ export async function GET(
   const file = zip.file(path);
   if (!file) return new NextResponse("Image not found", { status: 404 });
 
-  const data = await file.async("uint8array");
+  const data = await file.async("arraybuffer");
   const ext  = path.split(".").pop()?.toLowerCase() ?? "";
   const mime = MIME[ext] ?? "image/jpeg";
 
@@ -82,7 +82,7 @@ export async function GET(
     headers: {
       "Content-Type":  mime,
       "Cache-Control": "public, max-age=604800, immutable", // 7 dias
-      "Content-Length": String(data.length),
+      "Content-Length": String(data.byteLength),
     },
   });
 }
