@@ -306,7 +306,12 @@ export default function Home() {
       if (!response.ok) throw new Error(result.error ?? "Sincronização falhou.");
       setStatus({
         type: result.errors?.length ? "info" : "success",
-        message: `${result.processed} livros atualizados, ${result.skipped} sem alterações.`,
+        message: [
+          result.newBooks   > 0 ? `${result.newBooks} novo${result.newBooks !== 1 ? "s" : ""}` : "",
+          result.processed  > 0 ? `${result.processed} atualizado${result.processed !== 1 ? "s" : ""}` : "",
+          result.skipped    > 0 ? `${result.skipped} sem alterações` : "",
+          result.remaining  > 0 ? `${result.remaining} por processar (corre sync novamente)` : "",
+        ].filter(Boolean).join(" · ") || "Tudo actualizado.",
       });
       setPage(1);
       setShowSelectedOnly(false);
