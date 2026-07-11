@@ -132,41 +132,30 @@ export async function listDriveEpubs(
     return { files, token };
   }
 
-  // BFS recursivo
+  // BFS recursivo — 1 query por pasta (traz TUDO: subpastas + ficheiros)
+  // Reduz de 3 queries/pasta para 1 query/pasta.
   let depth = 0;
-  while (queue.length > 0 && depth < 10) { // máx 10 níveis de profundidade
+  while (queue.length > 0 && depth < 10) {
     const batch = [...queue];
     queue.length = 0;
     depth++;
 
-    // Processa pastas em paralelo (lotes de 10)
-    for (let i = 0; i < batch.length; i += 10) {
-      const chunk = batch.slice(i, i + 10);
+    // Processa até 20 pastas em paralelo
+    for (let i = 0; i < batch.length; i += 20) {
+      const chunk = batch.slice(i, i + 20);
       await Promise.all(chunk.map(async (parentId) => {
         try {
-          // 1. Subpastas → adicionar à fila
-          const subfolders = await listChildren(
+          // Uma única query por pasta: traz subpastas E ficheiros EPUB
+          const all = await listChildren(
             token, parentId,
-            `mimeType='${FOLDER_MIME}'`,
+            `(mimeType='${FOLDER_MIME}' or mimeType='application/epub+zip' or name contains '.epub')`,
             sharedDriveId,
           );
-          for (const sf of subfolders) queue.push(sf.id);
-
-          // 2. Ficheiros EPUB → por mimeType OU por nome
-          const byMime = await listChildren(
-            token, parentId,
-            "mimeType='application/epub+zip'",
-            sharedDriveId,
-          );
-          const byName = await listChildren(
-            token, parentId,
-            "name contains '.epub'",
-            sharedDriveId,
-          );
-
-          for (const f of [...byMime, ...byName]) {
-            if (f.name.toLowerCase().endsWith(".epub") && !allFiles.has(f.id)) {
-              allFiles.set(f.id, f);
+          for (const item of all) {
+            if (item.mimeType === FOLDER_MIME) {
+              queue.push(item.id);
+            } else if (item.name.toLowerCase().endsWith(".epub") && !allFiles.has(item.id)) {
+              allFiles.set(item.id, item);
             }
           }
         } catch (err) {
@@ -175,7 +164,7 @@ export async function listDriveEpubs(
       }));
     }
 
-    console.log(`[Drive] Depth ${depth}: explored ${batch.length} folders, found ${allFiles.size} EPUBs so far`);
+    console.log(`[Drive] Depth ${depth}: ${batch.length} folders → ${allFiles.size} EPUBs`);
   }
 
   const files = Array.from(allFiles.values());
