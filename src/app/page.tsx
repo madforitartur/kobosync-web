@@ -326,36 +326,37 @@ export default function Home() {
 
   async function syncCovers() {
     setSyncingCovers(true);
-    setStatus({ type: "info", message: "A iniciar sincronização de capas em background…" });
+    let totalSuccess = 0;
+    let totalFailed  = 0;
+    setStatus({ type: "info", message: "A sincronizar capas…" });
     try {
-      const res  = await fetch("/api/covers/sync-all", { method: "POST" });
-      const data = await res.json();
-      if (data?.state) {
-        setStatus({ type: "info", message: `A processar capas: ${data.state.totalBooks} livros…` });
-        const interval = setInterval(async () => {
-          const progRes = await fetch("/api/covers/progress");
-          const prog    = await progRes.json();
-          if (!prog.running) {
-            clearInterval(interval);
-            setStatus({
-              type:    prog.progress?.failed > 0 ? "info" : "success",
-              message: `Capas concluídas: ${prog.progress?.success ?? 0} extraídas, ${prog.progress?.failed ?? 0} falhas.`,
-            });
-            setPage(1);
-          } else {
-            setStatus({
-              type:    "info",
-              message: `Capas: ${prog.progress?.percent ?? 0}% (${prog.progress?.processed ?? 0}/${prog.progress?.total ?? 0})`,
-            });
-          }
-        }, 2000);
-      } else if (data?.message) {
-        setStatus({ type: "success", message: data.message });
-      } else {
-        setStatus({ type: "error", message: data.error ?? "Erro ao sincronizar capas" });
+      // Chama repetidamente em lotes até done:true
+      while (true) {
+        const res  = await fetch("/api/covers/sync-all", { method: "POST" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data.error) throw new Error(data.error);
+
+        totalSuccess += data.success  ?? 0;
+        totalFailed  += data.failed   ?? 0;
+
+        if (data.done || data.remaining === 0) {
+          setStatus({
+            type:    totalFailed > 0 ? "info" : "success",
+            message: `Capas: ${totalSuccess} extraídas${totalFailed > 0 ? `, ${totalFailed} falhas` : ""}. Concluído.`,
+          });
+          setPage(1);
+          break;
+        }
+
+        setStatus({
+          type:    "info",
+          message: `Capas: ${totalSuccess} feitas, ${data.remaining} por processar…`,
+        });
       }
     } catch (err) {
-      setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro" });
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro nas capas" });
     } finally {
       setSyncingCovers(false);
     }

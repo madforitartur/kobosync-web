@@ -1,179 +1,106 @@
+/**
+ * POST /api/covers/sync-all
+ *
+ * Processa um lote de livros sem capa (por omissão 10 por chamada).
+ * O cliente chama repetidamente até receber { done: true }.
+ *
+ * Não usa background tasks (incompatíveis com Vercel Serverless).
+ * Cada chamada é síncrona e retorna o progresso actual.
+ */
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { extractCoverFromEpub } from "@/lib/cover-extractor";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
-import { uploadCoverForBook, extractCoverFromEpub } from "@/lib/cover-extractor";
+import sharp from "sharp";
 
-export const runtime = "nodejs";
+export const runtime     = "nodejs";
+export const maxDuration = 60;
 
-export async function POST(_request: NextRequest) {
+const BATCH = 8; // livros por chamada (8 × ~5s = ~40s, abaixo do limite de 60s)
+
+export async function POST(_req: NextRequest) {
   const supabase = createServiceClient();
 
-  const { data: state } = await supabase
-    .from("cover_sync_state")
-    .select("*")
-    .eq("id", 1)
-    .single();
+  // Buscar livros sem capa (cover_url IS NULL)
+  const { data: books, error } = await supabase
+    .from("books")
+    .select("id, title, drive_file_id, epub_url")
+    .is("cover_url", null)
+    .not("drive_file_id", "is", null) // só livros com ficheiro no Drive
+    .order("title")
+    .limit(BATCH);
 
-  if (state?.running) {
-    return NextResponse.json({
-      message: "Sync ja em curso",
-      state,
-    });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const { count: totalBooks } = await supabase
+  // Contar total sem capa (para progresso)
+  const { count: totalLeft } = await supabase
     .from("books")
     .select("id", { count: "exact", head: true })
-    .or("cover_path.is.null,cover_url.is.null");
+    .is("cover_url", null);
 
-  if (!totalBooks || totalBooks === 0) {
-    return NextResponse.json({ message: "Nenhum livro sem capa" });
+  if (!books || books.length === 0) {
+    return NextResponse.json({ done: true, totalLeft: totalLeft ?? 0 });
   }
 
-  await supabase.from("cover_sync_state").upsert({
-    id: 1,
-    running: true,
-    started_at: new Date().toISOString(),
-    finished_at: null,
-    total_books: totalBooks,
-    processed: 0,
-    success: 0,
-    failed: 0,
-    current_batch: 0,
-    total_batches: Math.ceil(totalBooks / 100),
-    errors: [],
-  });
+  let success = 0;
+  let failed  = 0;
 
-  runBackgroundSync().catch((err) => {
-    console.error("[Cover Sync] Background error:", err);
-  });
+  // Processar em paralelo (4 em simultâneo)
+  const CONCURRENCY = 4;
+  for (let i = 0; i < books.length; i += CONCURRENCY) {
+    const chunk = books.slice(i, i + CONCURRENCY);
+    await Promise.allSettled(
+      chunk.map(async (book) => {
+        try {
+          // Download parcial do EPUB (primeiros 1.5 MB — suficiente para capa + metadados)
+          const buf = await downloadFromDriveWithConfig(book.drive_file_id);
+          const cover = await extractCoverFromEpub(buf);
+          if (!cover) { failed++; return; }
 
-  return NextResponse.json({ message: "Sync iniciado", totalBooks });
-}
+          // Comprime para JPEG 300×450 ≤ 80KB
+          const compressed = await sharp(Buffer.from(cover.data))
+            .resize(300, 450, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 80, mozjpeg: true })
+            .toBuffer();
 
-async function runBackgroundSync() {
-  const supabase = createServiceClient();
-  const BATCH_SIZE = 50;
-
-  let offset = 0;
-  let batchNum = 0;
-
-  while (true) {
-    batchNum++;
-
-    const { data: books, error } = await supabase
-      .from("books")
-      .select("id, title, drive_file_id, epub_url")
-      .or("cover_path.is.null,cover_url.is.null")
-      .order("title")
-      .range(offset, offset + BATCH_SIZE - 1);
-
-    if (error || !books || books.length === 0) break;
-
-    const result = await processBatch(books);
-
-    await supabase.rpc("update_sync_progress", {
-      p_processed: books.length,
-      p_success: result.success,
-      p_failed: result.failed,
-      p_errors: result.errors,
-      p_batch: batchNum,
-    });
-
-    console.log(
-      `[Cover Sync] Batch ${batchNum} - Success: ${result.success}, Failed: ${result.failed}`,
-    );
-
-    offset += BATCH_SIZE;
-    if (books.length < BATCH_SIZE) break;
-  }
-
-  await supabase
-    .from("cover_sync_state")
-    .update({
-      running: false,
-      finished_at: new Date().toISOString(),
-    })
-    .eq("id", 1);
-}
-
-async function processBatch(books: any[]) {
-  const result = { success: 0, failed: 0, errors: [] as any[] };
-
-  for (let i = 0; i < books.length; i += 3) {
-    const chunk = books.slice(i, i + 3);
-    const results = await Promise.allSettled(chunk.map(processBook));
-
-    for (let j = 0; j < results.length; j++) {
-      if (results[j].status === "fulfilled" && (results[j] as PromiseFulfilledResult<boolean>).value) {
-        result.success++;
-      } else {
-        result.failed++;
-        result.errors.push({
-          bookId: chunk[j].id,
-          title: chunk[j].title,
-          reason:
-            results[j].status === "rejected"
-              ? String((results[j] as PromiseRejectedResult).reason)
-              : "No cover",
-        });
-      }
-    }
-  }
-
-  return result;
-}
-
-async function processBook(book: any): Promise<boolean> {
-  const supabase = createServiceClient();
-  try {
-    let coverUrl: string | null = null;
-    let coverPath: string | null = null;
-
-    if (book.drive_file_id) {
-      const r = await uploadCoverForBook(
-        book.drive_file_id,
-        book.id,
-        downloadFromDriveWithConfig,
-      );
-      if (r) {
-        coverUrl = r.url;
-        coverPath = r.path;
-      }
-    } else if (book.epub_url) {
-      const response = await fetch(book.epub_url);
-      if (response.ok) {
-        const buffer = await response.arrayBuffer();
-        const cover = await extractCoverFromEpub(buffer);
-        if (cover) {
-          const ext =
-            cover.mimeType.split("/")[1]?.replace("jpeg", "jpg") ?? "jpg";
-          coverPath = `covers/${book.id}.${ext}`;
+          const coverPath = `covers/${book.id}.jpg`;
           const { error: upErr } = await supabase.storage
             .from("covers")
-            .upload(coverPath, cover.data, {
-              contentType: cover.mimeType,
-              upsert: true,
+            .upload(coverPath, compressed, {
+              contentType:  "image/jpeg",
+              upsert:       true,
+              cacheControl: "2592000",
             });
-          if (!upErr) {
-            const { data: sd } = await supabase.storage
-              .from("covers")
-              .createSignedUrl(coverPath, 60 * 60 * 24 * 30);
-            if (sd?.signedUrl) coverUrl = sd.signedUrl;
-          }
-        }
-      }
-    }
 
-    if (coverUrl && coverPath) {
-      await supabase
-        .from("books")
-        .update({ cover_url: coverUrl, cover_path: coverPath })
-        .eq("id", book.id);
-      return true;
-    }
-    return false;
-  } catch (err) {
-    return false;
+          if (upErr) { failed++; return; }
+
+          // URL pública (bucket público)
+          const { data: urlData } = supabase.storage
+            .from("covers")
+            .getPublicUrl(coverPath);
+
+          await supabase
+            .from("books")
+            .update({ cover_url: urlData.publicUrl, cover_path: coverPath })
+            .eq("id", book.id);
+
+          success++;
+        } catch {
+          failed++;
+        }
+      })
+    );
   }
+
+  const remaining = (totalLeft ?? 0) - success;
+
+  return NextResponse.json({
+    done:      remaining <= 0,
+    processed: books.length,
+    success,
+    failed,
+    remaining: Math.max(0, remaining),
+  });
 }
