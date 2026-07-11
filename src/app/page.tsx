@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Image,
   ArrowDownAZ,
   ArrowLeft,
   BookOpen,
@@ -320,6 +321,43 @@ export default function Home() {
       });
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function syncCovers() {
+    setSyncingCovers(true);
+    setStatus({ type: "info", message: "A iniciar sincronização de capas em background…" });
+    try {
+      const res  = await fetch("/api/covers/sync-all", { method: "POST" });
+      const data = await res.json();
+      if (data?.state) {
+        setStatus({ type: "info", message: `A processar capas: ${data.state.totalBooks} livros…` });
+        const interval = setInterval(async () => {
+          const progRes = await fetch("/api/covers/progress");
+          const prog    = await progRes.json();
+          if (!prog.running) {
+            clearInterval(interval);
+            setStatus({
+              type:    prog.progress?.failed > 0 ? "info" : "success",
+              message: `Capas concluídas: ${prog.progress?.success ?? 0} extraídas, ${prog.progress?.failed ?? 0} falhas.`,
+            });
+            setPage(1);
+          } else {
+            setStatus({
+              type:    "info",
+              message: `Capas: ${prog.progress?.percent ?? 0}% (${prog.progress?.processed ?? 0}/${prog.progress?.total ?? 0})`,
+            });
+          }
+        }, 2000);
+      } else if (data?.message) {
+        setStatus({ type: "success", message: data.message });
+      } else {
+        setStatus({ type: "error", message: data.error ?? "Erro ao sincronizar capas" });
+      }
+    } catch (err) {
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro" });
+    } finally {
+      setSyncingCovers(false);
     }
   }
 
@@ -653,8 +691,10 @@ export default function Home() {
             }}
             selectedCount={selectedIds.size}
             onSync={syncLibrary}
+            onCovers={syncCovers}
             onKobo={syncToKobo}
             syncing={syncing}
+            syncingCovers={syncingCovers}
           />
 
           {/* Status toast */}
@@ -742,45 +782,10 @@ export default function Home() {
               <button
                 className="flex h-10 items-center gap-2 rounded border border-outline-variant px-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant transition hover:bg-surface-container disabled:opacity-40"
                 disabled={syncingCovers}
-                onClick={async () => {
-                  setSyncingCovers(true);
-                  setStatus({ type: "info", message: "A iniciar sync de TODAS as capas em background…" });
-                  try {
-                    const res = await fetch("/api/covers/sync-all", { method: "POST" });
-                    const data = await res.json();
-                    if (data?.state) {
-                      setStatus({
-                        type: "info",
-                        message: `Sync iniciado: ${data.state.totalBooks} livros para processar.`,
-                      });
-                      const interval = setInterval(async () => {
-                        const progRes = await fetch("/api/covers/progress");
-                        const prog = await progRes.json();
-                        if (!prog.running) {
-                          clearInterval(interval);
-                          setStatus({
-                            type: prog.progress.failed > 0 ? "info" : "success",
-                            message: `Concluído: ${prog.progress.success} capas extraídas, ${prog.progress.failed} falhas.`,
-                          });
-                          setPage(1);
-                        } else {
-                          setStatus({
-                            type: "info",
-                            message: `A processar… ${prog.progress.percent}% (${prog.progress.processed}/${prog.progress.total}) - ETA: ${prog.progress.etaSec ?? "?"}s`,
-                          });
-                        }
-                      }, 2000);
-                    } else {
-                      setStatus({ type: "error", message: data.error ?? "Erro" });
-                    }
-                  } catch (err) {
-                    setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro" });
-                  } finally {
-                    setSyncingCovers(false);
-                  }
-                }}
+                onClick={syncCovers}
+                title="Sincronizar capas de todos os livros"
               >
-                <BookOpen size={16} className={syncingCovers ? "animate-pulse" : ""} />
+                <Image size={16} className={syncingCovers ? "animate-pulse" : ""} />
                 <span className="hidden sm:inline">Capas</span>
               </button>
               <button
