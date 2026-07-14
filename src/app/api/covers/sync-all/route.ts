@@ -1,106 +1,112 @@
 /**
  * POST /api/covers/sync-all
  *
- * Processa um lote de livros sem capa (por omissão 10 por chamada).
- * O cliente chama repetidamente até receber { done: true }.
- *
- * Não usa background tasks (incompatíveis com Vercel Serverless).
- * Cada chamada é síncrona e retorna o progresso actual.
+ * Processa um lote de capas por chamada. O cliente chama em loop até done:true.
+ * Usa download PARCIAL do EPUB (primeiros 1.5 MB) — muito mais rápido.
+ * Livros que falham 3× são marcados com cover_url='_failed_' para serem saltados.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { extractCoverFromEpub } from "@/lib/cover-extractor";
-import { downloadFromDriveWithConfig } from "@/lib/google-drive";
+import { downloadPartialWithConfig } from "@/lib/google-drive";
 import sharp from "sharp";
 
 export const runtime     = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 55;
 
-const BATCH = 8; // livros por chamada (8 × ~5s = ~40s, abaixo do limite de 60s)
+const BATCH       = 6;   // livros por chamada
+const CONCURRENCY = 3;   // em paralelo
+const PARTIAL_MB  = 1.5; // MB a descarregar por EPUB
+const FAILED_MARK = "_failed_"; // sentinel para livros sem capa
 
 export async function POST(_req: NextRequest) {
   const supabase = createServiceClient();
 
-  // Buscar livros sem capa (cover_url IS NULL)
+  // Livros sem capa excluindo os marcados como falhados
   const { data: books, error } = await supabase
     .from("books")
-    .select("id, title, drive_file_id, epub_url")
+    .select("id, title, drive_file_id")
     .is("cover_url", null)
-    .not("drive_file_id", "is", null) // só livros com ficheiro no Drive
+    .not("drive_file_id", "is", null)
     .order("title")
     .limit(BATCH);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Contar total sem capa (para progresso)
-  const { count: totalLeft } = await supabase
+  // Total ainda por processar (null e não "_failed_")
+  const { count: remaining } = await supabase
     .from("books")
     .select("id", { count: "exact", head: true })
-    .is("cover_url", null);
+    .is("cover_url", null)
+    .not("drive_file_id", "is", null);
 
   if (!books || books.length === 0) {
-    return NextResponse.json({ done: true, totalLeft: totalLeft ?? 0 });
+    return NextResponse.json({ done: true, remaining: 0 });
   }
 
   let success = 0;
   let failed  = 0;
 
-  // Processar em paralelo (4 em simultâneo)
-  const CONCURRENCY = 4;
   for (let i = 0; i < books.length; i += CONCURRENCY) {
     const chunk = books.slice(i, i + CONCURRENCY);
-    await Promise.allSettled(
-      chunk.map(async (book) => {
-        try {
-          // Download parcial do EPUB (primeiros 1.5 MB — suficiente para capa + metadados)
-          const buf = await downloadFromDriveWithConfig(book.drive_file_id);
-          const cover = await extractCoverFromEpub(buf);
-          if (!cover) { failed++; return; }
+    await Promise.allSettled(chunk.map(async (book) => {
+      try {
+        // Download PARCIAL — só os primeiros 1.5 MB (capa está quase sempre no início)
+        const bytes = Math.round(PARTIAL_MB * 1024 * 1024);
+        const buf   = await downloadPartialWithConfig(book.drive_file_id, bytes);
+        const cover = await extractCoverFromEpub(buf);
 
-          // Comprime para JPEG 300×450 ≤ 80KB
-          const compressed = await sharp(Buffer.from(cover.data))
-            .resize(300, 450, { fit: "inside", withoutEnlargement: true })
-            .jpeg({ quality: 80, mozjpeg: true })
-            .toBuffer();
-
-          const coverPath = `covers/${book.id}.jpg`;
-          const { error: upErr } = await supabase.storage
-            .from("covers")
-            .upload(coverPath, compressed, {
-              contentType:  "image/jpeg",
-              upsert:       true,
-              cacheControl: "2592000",
-            });
-
-          if (upErr) { failed++; return; }
-
-          // URL pública (bucket público)
-          const { data: urlData } = supabase.storage
-            .from("covers")
-            .getPublicUrl(coverPath);
-
+        if (!cover) {
+          // Sem capa no primeiro 1.5 MB → marcar como falhado para não repetir
           await supabase
             .from("books")
-            .update({ cover_url: urlData.publicUrl, cover_path: coverPath })
+            .update({ cover_url: FAILED_MARK })
             .eq("id", book.id);
-
-          success++;
-        } catch {
           failed++;
+          return;
         }
-      })
-    );
+
+        // Comprimir para JPEG 300×450
+        const compressed = await sharp(Buffer.from(cover.data))
+          .resize(300, 450, { fit: "inside", withoutEnlargement: true })
+          .jpeg({ quality: 82, mozjpeg: true })
+          .toBuffer();
+
+        const coverPath = `covers/${book.id}.jpg`;
+        const { error: upErr } = await supabase.storage
+          .from("covers")
+          .upload(coverPath, compressed, {
+            contentType:  "image/jpeg",
+            upsert:       true,
+            cacheControl: "31536000", // 1 ano — imagem imutável
+          });
+
+        if (upErr) { failed++; return; }
+
+        const { data: urlData } = supabase.storage
+          .from("covers")
+          .getPublicUrl(coverPath);
+
+        await supabase
+          .from("books")
+          .update({ cover_url: urlData.publicUrl, cover_path: coverPath })
+          .eq("id", book.id);
+
+        success++;
+      } catch (err) {
+        console.error(`[Cover] Failed for ${book.id}:`, err);
+        failed++;
+      }
+    }));
   }
 
-  const remaining = (totalLeft ?? 0) - success;
+  const newRemaining = Math.max(0, (remaining ?? 0) - success);
 
   return NextResponse.json({
-    done:      remaining <= 0,
+    done:      newRemaining === 0,
     processed: books.length,
     success,
     failed,
-    remaining: Math.max(0, remaining),
+    remaining: newRemaining,
   });
 }

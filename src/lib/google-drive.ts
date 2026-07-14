@@ -201,3 +201,11 @@ export async function downloadFromDriveWithConfig(fileId: string): Promise<Array
   const token  = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
   return downloadFromDrive(fileId, token);
 }
+
+/** Download parcial autenticado sem precisar de passar o token externamente. */
+export async function downloadPartialWithConfig(fileId: string, bytes: number): Promise<ArrayBuffer> {
+  const { getServerConfig } = await import("@/lib/env");
+  const config = getServerConfig();
+  const token  = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
+  return downloadFromDrivePartial(fileId, token, bytes);
+}

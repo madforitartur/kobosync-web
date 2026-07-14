@@ -140,7 +140,8 @@ export async function listSeries(): Promise<string[]> {
 
 /**
  * Para cada livro com cover_path, gera signed URL fresca.
- * Se já tem cover_url mas está vazio/expirado, gera nova.
+ * Usa URL pública (bucket covers é público) — sem signed URLs, sem latência extra.
+ * Filtra livros marcados como "_failed_" (sem capa no Drive).
  */
 async function refreshCoverUrls(
   books: Book[],
@@ -148,20 +149,22 @@ async function refreshCoverUrls(
 ): Promise<Book[]> {
   if (books.length === 0) return books;
 
-  return await Promise.all(
-    books.map(async (book) => {
-      const updated = { ...book };
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
-      if (book.cover_path) {
-        const { data } = await supabase.storage
-          .from("covers")
-          .createSignedUrl(book.cover_path, 60 * 60 * 24 * 30);
-        if (data?.signedUrl) {
-          updated.cover_url = data.signedUrl;
-        }
-      }
+  return books.map((book) => {
+    const updated = { ...book };
 
-      return updated;
-    }),
-  );
+    // Limpar sentinel _failed_ — mostra sem capa em vez do sentinel
+    if (updated.cover_url === "_failed_") {
+      updated.cover_url = null;
+    }
+
+    // Se tem cover_path mas cover_url está em falta/expirada, reconstrói URL pública
+    if (book.cover_path && (!book.cover_url || book.cover_url === "_failed_")) {
+      updated.cover_url = `${SUPABASE_URL}/storage/v1/object/public/covers/${book.cover_path}`;
+    }
+
+    return updated;
+  });
+  // Nota: Promise.all removido — URL pública não precisa de IO
 }
