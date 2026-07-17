@@ -47,7 +47,7 @@ export async function listBooks(
   const { data, error } = await query;
   if (error) throw error;
 
-  return await refreshCoverUrls(data as Book[], supabase);
+  return refreshCoverUrls(data as Book[], supabase);
 }
 
 export async function listBooksByIds(ids: string[]): Promise<Book[]> {
@@ -63,7 +63,7 @@ export async function listBooksByIds(ids: string[]): Promise<Book[]> {
     .order("title", { ascending: true });
 
   if (error) throw error;
-  return await refreshCoverUrls(data as Book[], supabase);
+  return refreshCoverUrls(data as Book[], supabase);
 }
 
 export async function countBooks(search?: string): Promise<number> {
@@ -139,32 +139,47 @@ export async function listSeries(): Promise<string[]> {
 }
 
 /**
- * Para cada livro com cover_path, gera signed URL fresca.
- * Usa URL pública (bucket covers é público) — sem signed URLs, sem latência extra.
- * Filtra livros marcados como "_failed_" (sem capa no Drive).
+ * Constrói URLs públicas das capas a partir de cover_path (fonte de verdade).
+ * O bucket "covers" é público — não precisamos de signed URLs.
+ * cover_path tem precedência sobre cover_url (que pode ser signed URL expirada).
  */
-async function refreshCoverUrls(
+function refreshCoverUrls(
   books: Book[],
-  supabase: ReturnType<typeof createServiceClient>,
-): Promise<Book[]> {
+  _supabase: ReturnType<typeof createServiceClient>,
+): Book[] {
   if (books.length === 0) return books;
 
-  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const publicPrefix = `${base}/storage/v1/object/public/covers/`;
 
   return books.map((book) => {
     const updated = { ...book };
 
-    // Limpar sentinel _failed_ — mostra sem capa em vez do sentinel
+    // Sentinel _failed_: sem capa → null
     if (updated.cover_url === "_failed_") {
       updated.cover_url = null;
+      return updated;
     }
 
-    // Se tem cover_path mas cover_url está em falta/expirada, reconstrói URL pública
-    if (book.cover_path && (!book.cover_url || book.cover_url === "_failed_")) {
-      updated.cover_url = `${SUPABASE_URL}/storage/v1/object/public/covers/${book.cover_path}`;
+    // cover_path é a fonte de verdade — reconstrói a URL pública
+    if (book.cover_path) {
+      updated.cover_url = `${publicPrefix}${book.cover_path}`;
+      return updated;
+    }
+
+    // Sem cover_path mas com cover_url: verificar se é URL válida
+    if (updated.cover_url) {
+      // Signed URL expirada (contém "token=") → limpar
+      if (updated.cover_url.includes("token=")) {
+        updated.cover_url = null;
+        return updated;
+      }
+      // URL pública já correcta → manter
+      if (updated.cover_url.startsWith("http")) {
+        return updated;
+      }
     }
 
     return updated;
   });
-  // Nota: Promise.all removido — URL pública não precisa de IO
 }
