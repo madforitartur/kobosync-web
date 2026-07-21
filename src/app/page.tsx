@@ -326,39 +326,66 @@ export default function Home() {
 
   async function syncCovers() {
     setSyncingCovers(true);
-    let totalSuccess = 0;
-    let totalFailed  = 0;
-    setStatus({ type: "info", message: "A sincronizar capas…" });
+    setStatus({ type: "info", message: "A iniciar sincronização de capas…" });
     try {
-      // Chama repetidamente em lotes até done:true
-      while (true) {
-        const res  = await fetch("/api/covers/sync-all", { method: "POST" });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+      // 1. Dispara o processamento no servidor (responde imediatamente)
+      const res  = await fetch("/api/covers/sync-all", { method: "POST" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-        if (data.error) throw new Error(data.error);
-
-        totalSuccess += data.success  ?? 0;
-        totalFailed  += data.failed   ?? 0;
-
-        if (data.done || data.remaining === 0) {
-          setStatus({
-            type:    totalFailed > 0 ? "info" : "success",
-            message: `Capas: ${totalSuccess} extraídas${totalFailed > 0 ? `, ${totalFailed} falhas` : ""}. Concluído.`,
-          });
-          setPage(1);
-          break;
-        }
-
-        setStatus({
-          type:    "info",
-          message: `Capas: ${totalSuccess} feitas, ${data.remaining} por processar…`,
-        });
+      if (data.error) throw new Error(data.error);
+      if (data.message && !data.running) {
+        // Já estava concluído ou a correr
+        setStatus({ type: "success", message: data.message });
+        setSyncingCovers(false);
+        return;
       }
+
+      setStatus({ type: "info", message: `A processar ${data.total ?? "?"} capas em background…` });
+
+      // 2. Polling do progresso a cada 3s até concluir
+      const interval = window.setInterval(async () => {
+        try {
+          const progRes  = await fetch("/api/covers/progress");
+          const prog     = await progRes.json();
+
+          if (!prog.running) {
+            window.clearInterval(interval);
+            setSyncingCovers(false);
+            setStatus({
+              type:    (prog.progress?.failed ?? 0) > 0 ? "info" : "success",
+              message: `Capas concluídas: ${prog.progress?.success ?? 0} extraídas${(prog.progress?.failed ?? 0) > 0 ? `, ${prog.progress.failed} falhas` : ""}.`,
+            });
+            setPage(1);
+          } else {
+            const pct = prog.progress?.percent ?? 0;
+            const ok  = prog.progress?.success ?? 0;
+            const tot = prog.progress?.total   ?? "?";
+            setStatus({ type: "info", message: `Capas: ${pct}% (${ok}/${tot})…` });
+          }
+        } catch {
+          // erro de rede no polling — continua a tentar
+        }
+      }, 3000);
+
     } catch (err) {
-      setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro nas capas" });
-    } finally {
       setSyncingCovers(false);
+      setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro nas capas" });
+    }
+  }
+
+  async function migrateCoverUrls() {
+    setStatus({ type: "info", message: "A corrigir URLs das capas…" });
+    try {
+      const res  = await fetch("/api/covers/migrate", { method: "POST" });
+      const data = await res.json();
+      setStatus({
+        type: "success",
+        message: `Capas corrigidas: ${data.fixed} URLs actualizadas, ${data.clearedExpired} expiradas limpas.`,
+      });
+      setPage(1);
+    } catch (err) {
+      setStatus({ type: "error", message: "Erro ao migrar capas." });
     }
   }
 
@@ -788,6 +815,14 @@ export default function Home() {
               >
                 <Image size={16} className={syncingCovers ? "animate-pulse" : ""} />
                 <span className="hidden sm:inline">Capas</span>
+              </button>
+              <button
+                className="flex h-10 items-center gap-2 rounded border border-outline-variant px-3 text-xs font-bold uppercase tracking-wider text-on-surface-variant transition hover:bg-surface-container"
+                onClick={migrateCoverUrls}
+                title="Corrigir URLs das capas existentes"
+              >
+                <RefreshCw size={16} />
+                <span className="hidden sm:inline">Fix Capas</span>
               </button>
               <button
                 className="flex h-10 items-center gap-2 rounded bg-primary px-4 text-xs font-bold uppercase tracking-wider text-on-primary transition hover:bg-primary-container disabled:opacity-40"
