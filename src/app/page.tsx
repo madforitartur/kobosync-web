@@ -300,27 +300,65 @@ export default function Home() {
 
   async function syncLibrary() {
     setSyncing(true);
-    setStatus({ type: "info", message: "A sincronizar Google Drive…" });
+    setStatus({ type: "info", message: "A iniciar pesquisa no Google Drive…" });
     try {
+      // 1. Dispara o sync no servidor — responde imediatamente
       const response = await fetch("/api/sync", { method: "POST" });
-      const result = await response.json();
+      const result   = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Sincronização falhou.");
-      setStatus({
-        type: result.errors?.length ? "info" : "success",
-        message: result.message ?? `${result.newBooks ?? 0} novos, ${result.found ?? 0} total.`,
-      });
-      setPage(1);
-      setShowSelectedOnly(false);
-      const authorsRes = await fetch("/api/authors");
-      const authorsData = await authorsRes.json();
-      if (authorsRes.ok) setAuthors(authorsData.authors ?? []);
+
+      if (!result.running) {
+        // Já estava a correr ou terminou instantaneamente
+        setStatus({ type: "info", message: result.message ?? "Sync em curso…" });
+        return;
+      }
+
+      setStatus({ type: "info", message: "A pesquisar livros no Google Drive… (podes fechar esta janela)" });
+
+      // 2. Polling do progresso a cada 4s
+      const interval = window.setInterval(async () => {
+        try {
+          const progRes = await fetch("/api/sync/progress");
+          const prog    = await progRes.json();
+
+          if (!prog.running && prog.started) {
+            // Concluído
+            window.clearInterval(interval);
+            setSyncing(false);
+            setPage(1);
+            setShowSelectedOnly(false);
+            // Actualizar lista de autores
+            fetch("/api/authors").then(r => r.json()).then(d => {
+              if (d.authors) setAuthors(d.authors);
+            }).catch(() => {});
+            const newB = prog.newBooks ?? 0;
+            setStatus({
+              type:    "success",
+              message: newB > 0
+                ? `${newB} livro${newB !== 1 ? "s" : ""} novo${newB !== 1 ? "s" : ""} adicionado${newB !== 1 ? "s" : ""}. ${prog.found ?? 0} no Drive total.`
+                : `Sem livros novos. ${prog.found ?? 0} livros no Drive.`,
+            });
+          } else if (prog.running) {
+            const found = prog.found ?? 0;
+            const ins   = prog.newBooks ?? 0;
+            setStatus({
+              type:    "info",
+              message: found > 0
+                ? `Drive: ${found} encontrados, ${ins} novos… (podes fechar esta janela)`
+                : "A pesquisar no Google Drive… (podes fechar esta janela)",
+            });
+          }
+        } catch {
+          // erro de rede no polling — continua a tentar
+        }
+      }, 4000);
+
     } catch (error) {
+      setSyncing(false);
       setStatus({
-        type: "error",
+        type:    "error",
         message: error instanceof Error ? error.message : "Erro.",
       });
-    } finally {
-      setSyncing(false);
     }
   }
 
