@@ -32,8 +32,17 @@ export async function GET(request: NextRequest) {
       totalPages: Math.max(1, Math.ceil(total / limit)),
     });
   } catch (error) {
+    const msg = error instanceof Error ? error.message : "Unable to load library";
+    // Detectar Supabase pausado
+    const isPaused = msg.includes("502") || msg.includes("503")
+      || msg.includes("fetch failed") || msg.includes("ECONNREFUSED")
+      || msg.includes("invalid_grant") || msg.includes("project_not_found");
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to load library" },
+      {
+        error: isPaused
+          ? "Base de dados pausada. Acede a supabase.com/dashboard e clica em 'Restore project'."
+          : msg,
+      },
       { status: 500 },
     );
   }
