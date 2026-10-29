@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getBookById } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
@@ -9,20 +9,13 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createServiceClient();
+    const book = await getBookById(id);
 
-    const { data, error } = await supabase
-      .from("books")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) throw error;
-    if (!data) {
+    if (!book) {
       return NextResponse.json({ error: "Book not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ book: data });
+    return NextResponse.json({ book });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unable to load book" },

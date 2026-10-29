@@ -38,13 +38,14 @@ export type Book = {
   publisher: string | null;
   isbn: string | null;
   description: string | null;
+  /** URL de imagem embebível da capa, alojada no Google Drive (conta das capas). */
   cover_url: string | null;
-  cover_path?: string | null;
+  /** ID do ficheiro da capa no Google Drive — usado para substituir/apagar a capa antiga. */
+  cover_drive_file_id?: string | null;
   epub_url: string | null;
-  epub_path?: string | null;
   filesize: number | null;
   modified_at: string | null;
-  created_at: string;
-  updated_at: string;
+  created_at: string | null;
+  updated_at: string | null;
 };
 

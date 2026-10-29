@@ -11,28 +11,96 @@ export function requireEnv(name: string) {
   return value;
 }
 
-export function getServerConfig() {
-  const serviceAccountPath = optional("GOOGLE_SERVICE_ACCOUNT_JSON_PATH");
-  const serviceAccount = serviceAccountPath
-    ? (JSON.parse(readFileSync(serviceAccountPath, "utf8")) as {
-        client_email?: string;
-        private_key?: string;
-      })
-    : null;
-  const supabasePublishableKey =
-    optional("NEXT_PUBLIC_SUPABASE_ANON_KEY") ?? optional("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+function readServiceAccountFile(path?: string): {
+  client_email?: string;
+  private_key?: string;
+  project_id?: string;
+} | null {
+  if (!path) return null;
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+/**
+ * Configuração da conta de serviço Google usada para LER os EPUBs
+ * (a Drive onde está a biblioteca).
+ */
+function getBooksDriveConfig() {
+  const serviceAccount = readServiceAccountFile(optional("GOOGLE_SERVICE_ACCOUNT_JSON_PATH"));
 
   return {
-    supabaseUrl: requireEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    supabaseServiceRoleKey:
-      optional("SUPABASE_SERVICE_ROLE_KEY") ?? supabasePublishableKey ?? requireEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-    googleClientEmail: optional("GOOGLE_CLIENT_EMAIL") ?? serviceAccount?.client_email ?? requireEnv("GOOGLE_CLIENT_EMAIL"),
-    googlePrivateKey:
-      (optional("GOOGLE_PRIVATE_KEY") ?? serviceAccount?.private_key ?? requireEnv("GOOGLE_PRIVATE_KEY")).replace(
-        /\\n/g,
-        "\n",
-      ),
-    googleSharedDriveId: optional("GOOGLE_SHARED_DRIVE_ID"),
-    googleDriveFolderId: optional("GOOGLE_DRIVE_FOLDER_ID"),
+    clientEmail:
+      optional("GOOGLE_CLIENT_EMAIL") ?? serviceAccount?.client_email ?? requireEnv("GOOGLE_CLIENT_EMAIL"),
+    privateKey: (
+      optional("GOOGLE_PRIVATE_KEY") ?? serviceAccount?.private_key ?? requireEnv("GOOGLE_PRIVATE_KEY")
+    ).replace(/\\n/g, "\n"),
+    sharedDriveId: optional("GOOGLE_SHARED_DRIVE_ID"),
+    folderId: optional("GOOGLE_DRIVE_FOLDER_ID"),
+  };
+}
+
+/**
+ * Configuração da conta de serviço Google (conta DIFERENTE, à escolha)
+ * usada para GUARDAR as capas extraídas dos EPUBs.
+ * Se não estiver configurada, cai automaticamente na mesma conta dos livros.
+ */
+function getCoversDriveConfig() {
+  const serviceAccount = readServiceAccountFile(optional("GOOGLE_COVERS_SERVICE_ACCOUNT_JSON_PATH"));
+
+  const clientEmail = optional("GOOGLE_COVERS_CLIENT_EMAIL") ?? serviceAccount?.client_email;
+  const privateKey = optional("GOOGLE_COVERS_PRIVATE_KEY") ?? serviceAccount?.private_key;
+  const folderId = optional("GOOGLE_COVERS_FOLDER_ID");
+
+  if (!clientEmail || !privateKey || !folderId) {
+    // Sem configuração dedicada — usa a conta dos livros como fallback.
+    const books = getBooksDriveConfig();
+    return {
+      clientEmail: books.clientEmail,
+      privateKey: books.privateKey,
+      sharedDriveId: optional("GOOGLE_COVERS_SHARED_DRIVE_ID") ?? books.sharedDriveId,
+      folderId: folderId ?? books.folderId,
+    };
+  }
+
+  return {
+    clientEmail,
+    privateKey: privateKey.replace(/\\n/g, "\n"),
+    sharedDriveId: optional("GOOGLE_COVERS_SHARED_DRIVE_ID"),
+    folderId,
+  };
+}
+
+function getFirebaseConfig() {
+  const serviceAccount = readServiceAccountFile(optional("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"));
+
+  return {
+    projectId:
+      optional("FIREBASE_PROJECT_ID") ?? serviceAccount?.project_id ?? requireEnv("FIREBASE_PROJECT_ID"),
+    clientEmail:
+      optional("FIREBASE_CLIENT_EMAIL") ?? serviceAccount?.client_email ?? requireEnv("FIREBASE_CLIENT_EMAIL"),
+    privateKey: (
+      optional("FIREBASE_PRIVATE_KEY") ?? serviceAccount?.private_key ?? requireEnv("FIREBASE_PRIVATE_KEY")
+    ).replace(/\\n/g, "\n"),
+  };
+}
+
+export function getServerConfig() {
+  const books = getBooksDriveConfig();
+  const covers = getCoversDriveConfig();
+  const firebase = getFirebaseConfig();
+
+  return {
+    firebaseProjectId: firebase.projectId,
+    firebaseClientEmail: firebase.clientEmail,
+    firebasePrivateKey: firebase.privateKey,
+
+    googleClientEmail: books.clientEmail,
+    googlePrivateKey: books.privateKey,
+    googleSharedDriveId: books.sharedDriveId,
+    googleDriveFolderId: books.folderId,
+
+    coversClientEmail: covers.clientEmail,
+    coversPrivateKey: covers.privateKey,
+    coversSharedDriveId: covers.sharedDriveId,
+    coversFolderId: covers.folderId,
   };
 }

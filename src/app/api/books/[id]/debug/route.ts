@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getBookById } from "@/lib/firebase/books";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 import JSZip from "jszip";
 
@@ -12,15 +12,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createServiceClient();
+    const book = await getBookById(id);
 
-    const { data: book, error } = await supabase
-      .from("books")
-      .select("epub_url, drive_file_id, title, filesize")
-      .eq("id", id)
-      .single();
-
-    if (error || !book) {
+    if (!book) {
       return NextResponse.json({ error: "Book not found" }, { status: 404 });
     }
 
@@ -40,7 +34,6 @@ export async function GET(
 
     const zip = await JSZip.loadAsync(arrayBuffer);
 
-    // Encontrar OPF
     const containerXml = await zip.file("META-INF/container.xml")?.async("text");
     let opfPath: string | null = null;
     if (containerXml) {
@@ -58,8 +51,8 @@ export async function GET(
       title: book.title,
       opfPath,
       opfFullLength: opfContent?.length ?? 0,
-      opfContent, // OPF COMPLETO agora
-      tocNcx: await zip.file("OEBPS/toc.ncx")?.async("text") ?? null,
+      opfContent,
+      tocNcx: (await zip.file("OEBPS/toc.ncx")?.async("text")) ?? null,
     });
   } catch (error) {
     return NextResponse.json(

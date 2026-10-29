@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 
 export const metadata: Metadata = {
   title: "KoboSync - Biblioteca EPUB",
-  description: "Biblioteca EPUB com Google Drive, Supabase e Kobo",
+  description: "Biblioteca EPUB com Google Drive, Firebase e Kobo",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,

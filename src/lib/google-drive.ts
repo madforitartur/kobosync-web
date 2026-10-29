@@ -16,11 +16,15 @@ interface ListDriveEpubsParams {
   folderId?:      string;
 }
 
-async function getAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+async function getAccessToken(
+  clientEmail: string,
+  privateKey: string,
+  scope: string = "https://www.googleapis.com/auth/drive.readonly",
+): Promise<string> {
   const now     = Math.floor(Date.now() / 1000);
   const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
   const payload = Buffer.from(JSON.stringify({
-    iss: clientEmail, scope: "https://www.googleapis.com/auth/drive.readonly",
+    iss: clientEmail, scope,
     aud: TOKEN_URL,   iat: now, exp: now + 3600,
   })).toString("base64url");
   const unsigned = `${header}.${payload}`;
@@ -208,4 +212,116 @@ export async function downloadPartialWithConfig(fileId: string, bytes: number): 
   const config = getServerConfig();
   const token  = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
   return downloadFromDrivePartial(fileId, token, bytes);
+}
+
+// ── Upload de capas (conta Google separada, com permissão de escrita) ──────
+
+export interface CoversDriveConfig {
+  clientEmail:    string;
+  privateKey:     string;
+  folderId:       string;
+  sharedDriveId?: string;
+}
+
+/**
+ * Faz upload de um ficheiro (a capa comprimida) para uma pasta do Google Drive
+ * e torna-o público ("qualquer pessoa com o link pode ver").
+ * Devolve o ID do ficheiro e um URL de imagem embebível.
+ */
+export async function uploadCoverToDrive(
+  config: CoversDriveConfig,
+  filename: string,
+  bytes: Buffer,
+  mimeType: string,
+): Promise<{ fileId: string; url: string }> {
+  const token = await getAccessToken(
+    config.clientEmail,
+    config.privateKey,
+    "https://www.googleapis.com/auth/drive",
+  );
+
+  const metadata = {
+    name: filename,
+    parents: [config.folderId],
+  };
+
+  const boundary = `-------kobosync${Date.now()}`;
+  const metadataPart =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`;
+  const mediaHeader = `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const closing = `\r\n--${boundary}--`;
+
+  const body = Buffer.concat([
+    Buffer.from(metadataPart, "utf-8"),
+    Buffer.from(mediaHeader, "utf-8"),
+    bytes,
+    Buffer.from(closing, "utf-8"),
+  ]);
+
+  const uploadParams = new URLSearchParams({
+    uploadType: "multipart",
+    fields: "id",
+    ...(config.sharedDriveId ? { supportsAllDrives: "true" } : {}),
+  });
+
+  const uploadRes = await fetch(
+    `https://www.googleapis.com/upload/drive/v3/files?${uploadParams}`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    },
+  );
+
+  const uploadData = await uploadRes.json();
+  if (!uploadData.id) {
+    throw new Error(`Drive upload failed: ${JSON.stringify(uploadData)}`);
+  }
+
+  const fileId = uploadData.id as string;
+
+  // Torna o ficheiro público (qualquer pessoa com o link pode ver)
+  const permRes = await fetch(
+    `${DRIVE_API}/files/${fileId}/permissions?supportsAllDrives=true`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ role: "reader", type: "anyone" }),
+    },
+  );
+  if (!permRes.ok) {
+    console.error("[Drive] Failed to set public permission:", await permRes.text());
+  }
+
+  // Endpoint oficial de thumbnail do Drive — ideal para imagens pequenas
+  // como capas de livros (evita os problemas de hotlink do "uc?export=view").
+  const url = `https://drive.google.com/thumbnail?id=${fileId}&sz=w600`;
+
+  return { fileId, url };
+}
+
+/** Substitui (apaga) uma capa antiga antes de fazer upload da nova, se existir. */
+export async function deleteCoverFromDrive(
+  config: CoversDriveConfig,
+  fileId: string,
+): Promise<void> {
+  try {
+    const token = await getAccessToken(
+      config.clientEmail,
+      config.privateKey,
+      "https://www.googleapis.com/auth/drive",
+    );
+    await fetch(`${DRIVE_API}/files/${fileId}?supportsAllDrives=true`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    console.error("[Drive] Failed to delete old cover:", err);
+  }
 }

@@ -1,37 +1,32 @@
 import { NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/env";
 import { listDriveEpubs } from "@/lib/google-drive";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getAllBooksCached } from "@/lib/firebase/books";
 
-export const runtime     = "nodejs";
+export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
   try {
     const config = getServerConfig();
 
-    // Lista EPUBs com pesquisa recursiva
     const { files } = await listDriveEpubs({
-      clientEmail:   config.googleClientEmail,
-      privateKey:    config.googlePrivateKey,
+      clientEmail: config.googleClientEmail,
+      privateKey: config.googlePrivateKey,
       sharedDriveId: config.googleSharedDriveId,
-      folderId:      config.googleDriveFolderId,
+      folderId: config.googleDriveFolderId,
     });
 
-    const supabase = createServiceClient();
-    const { data: dbBooks } = await supabase
-      .from("books")
-      .select("drive_file_id, title, cover_url");
-
-    const dbIds      = new Set((dbBooks ?? []).map((b: { drive_file_id: string }) => b.drive_file_id));
+    const dbBooks = await getAllBooksCached(true);
+    const dbIds = new Set(dbBooks.map((b) => b.drive_file_id).filter(Boolean));
     const newInDrive = files.filter((f) => !dbIds.has(f.id));
 
     return NextResponse.json({
       driveTotal: files.length,
-      dbTotal:    dbBooks?.length ?? 0,
+      dbTotal: dbBooks.length,
       newInDrive: newInDrive.length,
       config: {
-        folderId:      config.googleDriveFolderId ?? null,
+        folderId: config.googleDriveFolderId ?? null,
         sharedDriveId: config.googleSharedDriveId ?? null,
       },
       newFiles: newInDrive.slice(0, 20).map((f) => ({

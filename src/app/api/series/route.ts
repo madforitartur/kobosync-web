@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listSeries } from "@/lib/supabase/server";
+import { listSeries } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
