@@ -1,11 +1,12 @@
 import JSZip from "jszip";
-import { createServiceClient } from "./supabase/server";
+import { getServerConfig } from "@/lib/env";
+import { uploadCoverToDrive, deleteCoverFromDrive } from "@/lib/google-drive";
 
-/** Dimensões e qualidade máximas para capas guardadas no Supabase */
-const COVER_MAX_W   = 300;
-const COVER_MAX_H   = 450;
-const COVER_QUALITY = 80;   // JPEG 0-100
-const COVER_MAX_BYTES = 250 * 1024; // 250 KB — rejeita uploads que ainda sejam grandes
+/** Dimensões e qualidade máximas para as capas guardadas no Drive */
+const COVER_MAX_W     = 300;
+const COVER_MAX_H     = 450;
+const COVER_QUALITY   = 80; // JPEG 0-100
+const COVER_MAX_BYTES = 250 * 1024; // 250 KB — aviso se ainda ficar grande após compressão
 
 /**
  * Redimensiona e comprime um buffer de imagem para JPEG.
@@ -16,7 +17,7 @@ async function compressToJpeg(data: ArrayBuffer): Promise<{ buffer: Buffer; mime
     const sharp = (await import("sharp")).default;
     const compressed = await sharp(Buffer.from(data))
       .resize(COVER_MAX_W, COVER_MAX_H, {
-        fit:      "inside",      // preserva aspect-ratio, nunca amplia
+        fit: "inside", // preserva aspect-ratio, nunca amplia
         withoutEnlargement: true,
       })
       .jpeg({ quality: COVER_QUALITY, mozjpeg: true })
@@ -29,7 +30,7 @@ async function compressToJpeg(data: ArrayBuffer): Promise<{ buffer: Buffer; mime
 }
 
 /**
- * Extrai a imagem de capa de um ficheiro EPUB.
+ * Extrai a imagem de capa de um ficheiro EPUB (sem tocar em rede/BD).
  */
 export async function extractCoverFromEpub(
   arrayBuffer: ArrayBuffer,
@@ -42,7 +43,7 @@ export async function extractCoverFromEpub(
   const opfPathMatch = containerXml.match(/full-path="([^"]+)"/);
   if (!opfPathMatch) return null;
   const opfPath = opfPathMatch[1];
-  const opfDir  = opfPath.includes("/")
+  const opfDir = opfPath.includes("/")
     ? opfPath.substring(0, opfPath.lastIndexOf("/") + 1)
     : "";
 
@@ -54,17 +55,17 @@ export async function extractCoverFromEpub(
   let match: RegExpExecArray | null;
 
   while ((match = itemRegex.exec(opfContent)) !== null) {
-    const attrs         = match[1];
-    const idMatch       = attrs.match(/\bid\s*=\s*"([^"]+)"/i);
-    const hrefMatch     = attrs.match(/\bhref\s*=\s*"([^"]+)"/i);
-    const mediaTypeMatch= attrs.match(/\bmedia-type\s*=\s*"([^"]+)"/i);
-    const propertiesMatch=attrs.match(/\bproperties\s*=\s*"([^"]+)"/i);
+    const attrs          = match[1];
+    const idMatch        = attrs.match(/\bid\s*=\s*"([^"]+)"/i);
+    const hrefMatch      = attrs.match(/\bhref\s*=\s*"([^"]+)"/i);
+    const mediaTypeMatch = attrs.match(/\bmedia-type\s*=\s*"([^"]+)"/i);
+    const propertiesMatch = attrs.match(/\bproperties\s*=\s*"([^"]+)"/i);
 
     if (idMatch && hrefMatch && mediaTypeMatch?.[1].startsWith("image/")) {
       imageItems.push({
-        id:         idMatch[1],
-        href:       hrefMatch[1],
-        mediaType:  mediaTypeMatch[1],
+        id: idMatch[1],
+        href: hrefMatch[1],
+        mediaType: mediaTypeMatch[1],
         properties: propertiesMatch?.[1] ?? "",
       });
     }
@@ -72,7 +73,7 @@ export async function extractCoverFromEpub(
 
   // Prioridade: meta name=cover → properties=cover-image → id="cover" → primeira imagem
   const coverMetaMatch = opfContent.match(/<meta\s+name="cover"\s+content="([^"]+)"/i);
-  let coverItem =
+  const coverItem =
     (coverMetaMatch ? imageItems.find((i) => i.id === coverMetaMatch[1]) : null) ??
     imageItems.find((i) => i.properties.split(/\s+/).includes("cover-image")) ??
     imageItems.find((i) => i.id.toLowerCase() === "cover") ??
@@ -81,7 +82,7 @@ export async function extractCoverFromEpub(
   if (!coverItem) return null;
 
   const fullPath = opfDir + coverItem.href;
-  const file     = zip.file(fullPath);
+  const file = zip.file(fullPath);
   if (!file) return null;
 
   const data = await file.async("arraybuffer");
@@ -89,62 +90,60 @@ export async function extractCoverFromEpub(
 }
 
 /**
- * Extrai capa de um EPUB do Google Drive, COMPRIME para JPEG 300×450 ≤ 250KB,
- * faz upload para Supabase e devolve URL e path.
+ * Extrai a capa de um EPUB do Google Drive (conta dos livros), COMPRIME
+ * para JPEG 300×450 e faz upload para a pasta de capas no Google Drive
+ * (pode ser uma conta Google diferente). Nada é guardado no Firebase.
+ *
+ * Devolve o ID do ficheiro no Drive e o URL de imagem embebível.
  */
 export async function uploadCoverForBook(
   driveFileId: string,
-  bookId:      string,
-  downloadFn:  (id: string) => Promise<ArrayBuffer>,
-): Promise<{ url: string; path: string } | null> {
+  bookId: string,
+  downloadFn: (id: string) => Promise<ArrayBuffer>,
+  previousCoverFileId?: string | null,
+): Promise<{ url: string; fileId: string } | null> {
   try {
     const epubBuffer = await downloadFn(driveFileId);
-    const cover      = await extractCoverFromEpub(epubBuffer);
+    const cover = await extractCoverFromEpub(epubBuffer);
     if (!cover) return null;
 
-    // Comprime sempre para JPEG independentemente do formato original
     const { buffer: compressed, mimeType } = await compressToJpeg(cover.data);
 
     if (compressed.length > COVER_MAX_BYTES * 2) {
-      // Última salvaguarda: se ainda for muito grande, ignora
-      console.warn(`[Cover] Imagem ainda grande após compressão (${(compressed.length/1024).toFixed(0)} KB) para ${bookId}`);
+      console.warn(
+        `[Cover] Imagem ainda grande após compressão (${(compressed.length / 1024).toFixed(0)} KB) para ${bookId}`,
+      );
     }
 
-    const coverPath = `covers/${bookId}.jpg`;
-    const supabase  = createServiceClient();
+    const config = getServerConfig();
+    const coversConfig = {
+      clientEmail: config.coversClientEmail,
+      privateKey: config.coversPrivateKey,
+      folderId: config.coversFolderId!,
+      sharedDriveId: config.coversSharedDriveId,
+    };
 
-    const { error: uploadError } = await supabase.storage
-      .from("covers")
-      .upload(coverPath, compressed, {
-        contentType: mimeType,
-        upsert:      true,
-        // Cache de 30 dias no CDN do Supabase
-        cacheControl: "2592000",
-      });
-
-    if (uploadError) {
-      console.error(`[Cover] Upload failed for ${bookId}:`, uploadError);
-      return null;
+    if (!coversConfig.folderId) {
+      throw new Error(
+        "GOOGLE_COVERS_FOLDER_ID não está configurado — define a pasta do Drive onde as capas devem ficar.",
+      );
     }
 
-    const { data: signedData } = await supabase.storage
-      .from("covers")
-      .createSignedUrl(coverPath, 60 * 60 * 24 * 30);
+    // Se já existia uma capa antiga deste livro no Drive, apaga-a primeiro
+    if (previousCoverFileId) {
+      await deleteCoverFromDrive(coversConfig, previousCoverFileId);
+    }
 
-    if (!signedData?.signedUrl) return null;
+    const { fileId, url } = await uploadCoverToDrive(
+      coversConfig,
+      `${bookId}.jpg`,
+      compressed,
+      mimeType,
+    );
 
-    return { url: signedData.signedUrl, path: coverPath };
+    return { url, fileId };
   } catch (error) {
     console.error(`[Cover] Error for book ${bookId}:`, error);
     return null;
   }
-}
-
-export async function refreshBooks(supabase: ReturnType<typeof createServiceClient>) {
-  const { data, error } = await supabase
-    .from("books")
-    .select("*")
-    .order("title", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
 }

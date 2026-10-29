@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listBooksByIds } from "@/lib/supabase/server";
+import { listBooksByIds } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const ids: unknown = body?.ids;
 
-    // Validação rigorosa
     if (!Array.isArray(ids)) {
       return NextResponse.json({ error: "ids must be an array" }, { status: 400 });
     }

@@ -451,8 +451,8 @@ export default function Home() {
       let fail = 0;
       for (const book of booksToSend) {
         try {
-          // Usa a API interna /api/books/[id]/download para evitar CORS
-          // e URLs de Supabase expiradas. O servidor renova a URL e serve o ficheiro.
+          // Usa a API interna /api/books/[id]/download para evitar CORS.
+          // O servidor descarrega directamente do Google Drive e serve o ficheiro.
           const res = await fetch(`/api/books/${book.id}/download`);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const blob = await res.blob();
@@ -893,8 +893,8 @@ export default function Home() {
                 A tua biblioteca Kobo, organizada a partir do Google Drive.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-on-surface-variant md:text-lg">
-                Metadados, capas e ficheiros EPUB são sincronizados no servidor e servidos pelo Supabase
-                para uma experiência rápida, pesquisável e pronta para leitura online.
+                Metadados e capas ficam num índice rápido e pesquisável; os ficheiros EPUB
+                nunca saem do teu Google Drive — apenas são servidos sob pedido.
               </p>
             </div>
 

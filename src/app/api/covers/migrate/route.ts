@@ -1,101 +1,76 @@
+/**
+ * POST /api/covers/migrate
+ *
+ * Com capas alojadas no Google Drive (links "anyone with the link"), os
+ * URLs não expiram como acontecia com signed URLs do Supabase Storage.
+ * Esta rota faz, por isso, uma verificação de manutenção: confirma que
+ * cada capa gravada continua acessível no Drive e limpa as que já não
+ * respondem (ficheiro apagado/permissão revogada), para que o sync de
+ * capas as volte a processar.
+ */
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getAllBooksCached, updateBookCover } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
-/**
- * GET /api/covers/migrate
- * Para cada livro com cover_path mas cover_url errada/expirada,
- * reconstrói a cover_url pública correcta.
- * Também limpa signed URLs expiradas (contêm "token=").
- */
+async function isCoverReachable(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: "GET", signal: AbortSignal.timeout(8000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function POST() {
-  const supabase = createServiceClient();
-  const base = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const books = await getAllBooksCached();
+  const withCover = books.filter((b) => b.cover_url);
 
-  // 1. Livros com cover_path correcto mas cover_url errada
-  const { data: withPath } = await supabase
-    .from("books")
-    .select("id, cover_path, cover_url")
-    .not("cover_path", "is", null);
+  let clearedExpired = 0;
+  const CONCURRENCY = 8;
 
-  let fixed = 0;
-  let skipped = 0;
-
-  for (const book of withPath ?? []) {
-    const expectedUrl = `${base}/storage/v1/object/public/covers/${book.cover_path}`;
-    if (book.cover_url === expectedUrl) { skipped++; continue; }
-
-    await supabase
-      .from("books")
-      .update({ cover_url: expectedUrl })
-      .eq("id", book.id);
-    fixed++;
+  for (let i = 0; i < withCover.length; i += CONCURRENCY) {
+    const chunk = withCover.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      chunk.map(async (book) => {
+        const ok = await isCoverReachable(book.cover_url!);
+        if (!ok) {
+          await updateBookCover(book.id, { cover_url: null, cover_drive_file_id: null });
+          clearedExpired++;
+        }
+      }),
+    );
   }
 
-  // 2. Livros com signed URL expirada (contêm "token=") → limpar
-  const { data: withToken } = await supabase
-    .from("books")
-    .select("id, cover_url")
-    .like("cover_url", "%token=%");
-
-  let cleared = 0;
-  for (const book of withToken ?? []) {
-    await supabase
-      .from("books")
-      .update({ cover_url: null })
-      .eq("id", book.id);
-    cleared++;
-  }
-
-  // 3. Stats
-  const { count: nullCovers } = await supabase
-    .from("books")
-    .select("id", { count: "exact", head: true })
-    .is("cover_url", null);
-
-  const { count: failedCovers } = await supabase
-    .from("books")
-    .select("id", { count: "exact", head: true })
-    .eq("cover_url", "_failed_");
-
-  const { count: goodCovers } = await supabase
-    .from("books")
-    .select("id", { count: "exact", head: true })
-    .not("cover_url", "is", null)
-    .not("cover_url", "eq", "_failed_");
+  const refreshed = await getAllBooksCached(true);
+  const withCoverCount = refreshed.filter((b) => b.cover_url).length;
+  const noCoverCount = refreshed.filter((b) => !b.cover_url).length;
 
   return NextResponse.json({
-    fixed,
-    skipped,
-    clearedExpired: cleared,
+    fixed: 0,
+    skipped: withCover.length - clearedExpired,
+    clearedExpired,
     stats: {
-      withCover:   goodCovers  ?? 0,
-      withoutCover:nullCovers  ?? 0,
-      failed:      failedCovers ?? 0,
+      withCover: withCoverCount,
+      withoutCover: noCoverCount,
+      failed: 0,
     },
   });
 }
 
 export async function GET() {
-  const supabase = createServiceClient();
-
-  const { count: total }       = await supabase.from("books").select("id", { count: "exact", head: true });
-  const { count: withPath }    = await supabase.from("books").select("id", { count: "exact", head: true }).not("cover_path", "is", null);
-  const { count: withUrl }     = await supabase.from("books").select("id", { count: "exact", head: true }).not("cover_url", "is", null).not("cover_url", "eq", "_failed_");
-  const { count: withToken }   = await supabase.from("books").select("id", { count: "exact", head: true }).like("cover_url", "%token=%");
-  const { count: failed }      = await supabase.from("books").select("id", { count: "exact", head: true }).eq("cover_url", "_failed_");
-  const { count: noUrl }       = await supabase.from("books").select("id", { count: "exact", head: true }).is("cover_url", null);
+  const books = await getAllBooksCached();
+  const withCover = books.filter((b) => b.cover_url).length;
+  const noCover = books.filter((b) => !b.cover_url).length;
 
   return NextResponse.json({
-    total:          total       ?? 0,
-    withCoverPath:  withPath    ?? 0,
-    withGoodUrl:    withUrl     ?? 0,
-    withExpiredUrl: withToken   ?? 0,
-    markedFailed:   failed      ?? 0,
-    noCover:        noUrl       ?? 0,
-    recommendation: (withToken ?? 0) > 0
-      ? `Corre POST /api/covers/migrate para corrigir ${withToken} URLs expiradas`
-      : "OK — sem URLs expiradas",
+    total: books.length,
+    withGoodUrl: withCover,
+    noCover,
+    recommendation:
+      noCover > 0
+        ? `${noCover} livros ainda sem capa — usa "Sincronizar capas".`
+        : "OK — todos os livros têm capa.",
   });
 }

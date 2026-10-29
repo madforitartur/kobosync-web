@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listBooks, countBooks } from "@/lib/supabase/server";
+import { listBooks, countBooks } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
@@ -33,17 +33,6 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unable to load library";
-    // Detectar Supabase pausado
-    const isPaused = msg.includes("502") || msg.includes("503")
-      || msg.includes("fetch failed") || msg.includes("ECONNREFUSED")
-      || msg.includes("invalid_grant") || msg.includes("project_not_found");
-    return NextResponse.json(
-      {
-        error: isPaused
-          ? "Base de dados pausada. Acede a supabase.com/dashboard e clica em 'Restore project'."
-          : msg,
-      },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

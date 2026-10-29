@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { getBookById } from "@/lib/firebase/books";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 import JSZip from "jszip";
 
@@ -14,15 +14,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const supabase = createServiceClient();
+    const book = await getBookById(id);
 
-    const { data: book, error } = await supabase
-      .from("books")
-      .select("epub_url, drive_file_id, title")
-      .eq("id", id)
-      .single();
-
-    if (error || !book) {
+    if (!book) {
       return NextResponse.json({ error: "Book not found" }, { status: 404 });
     }
 
