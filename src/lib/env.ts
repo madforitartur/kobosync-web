@@ -38,37 +38,6 @@ function getBooksDriveConfig() {
   };
 }
 
-/**
- * Configuração da conta de serviço Google (conta DIFERENTE, à escolha)
- * usada para GUARDAR as capas extraídas dos EPUBs.
- * Se não estiver configurada, cai automaticamente na mesma conta dos livros.
- */
-function getCoversDriveConfig() {
-  const serviceAccount = readServiceAccountFile(optional("GOOGLE_COVERS_SERVICE_ACCOUNT_JSON_PATH"));
-
-  const clientEmail = optional("GOOGLE_COVERS_CLIENT_EMAIL") ?? serviceAccount?.client_email;
-  const privateKey = optional("GOOGLE_COVERS_PRIVATE_KEY") ?? serviceAccount?.private_key;
-  const folderId = optional("GOOGLE_COVERS_FOLDER_ID");
-
-  if (!clientEmail || !privateKey || !folderId) {
-    // Sem configuração dedicada — usa a conta dos livros como fallback.
-    const books = getBooksDriveConfig();
-    return {
-      clientEmail: books.clientEmail,
-      privateKey: books.privateKey,
-      sharedDriveId: optional("GOOGLE_COVERS_SHARED_DRIVE_ID") ?? books.sharedDriveId,
-      folderId: folderId ?? books.folderId,
-    };
-  }
-
-  return {
-    clientEmail,
-    privateKey: privateKey.replace(/\\n/g, "\n"),
-    sharedDriveId: optional("GOOGLE_COVERS_SHARED_DRIVE_ID"),
-    folderId,
-  };
-}
-
 function getFirebaseConfig() {
   const serviceAccount = readServiceAccountFile(optional("FIREBASE_SERVICE_ACCOUNT_JSON_PATH"));
 
@@ -85,7 +54,6 @@ function getFirebaseConfig() {
 
 export function getServerConfig() {
   const books = getBooksDriveConfig();
-  const covers = getCoversDriveConfig();
   const firebase = getFirebaseConfig();
 
   return {
@@ -98,9 +66,5 @@ export function getServerConfig() {
     googleSharedDriveId: books.sharedDriveId,
     googleDriveFolderId: books.folderId,
 
-    coversClientEmail: covers.clientEmail,
-    coversPrivateKey: covers.privateKey,
-    coversSharedDriveId: covers.sharedDriveId,
-    coversFolderId: covers.folderId,
   };
 }

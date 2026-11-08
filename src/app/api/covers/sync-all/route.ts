@@ -5,8 +5,7 @@
  * O processamento corre em background no servidor usando after() do
  * Next.js — cada batch chama o próximo até não haver mais livros.
  *
- * As capas extraídas são enviadas para o Google Drive (conta das capas,
- * configurável separadamente) e apenas o link fica gravado no Firestore.
+ * As capas extraídas são enviadas para o Firestore (colecção "covers").
  *
  * Estado guardado em Firestore: colecção "sync_state", documento "covers".
  * O cliente pode consultar GET /api/covers/progress para acompanhar.
@@ -17,17 +16,17 @@ import {
   listBooksWithoutCover,
   countBooksWithoutCover,
   updateBookCover,
+  markCoverFailed,
 } from "@/lib/firebase/books";
 import { getSyncState, startSyncState, finishSyncState, bumpSyncProgress } from "@/lib/firebase/sync-state";
-import { uploadCoverForBook } from "@/lib/cover-extractor";
-import { downloadPartialWithConfig } from "@/lib/google-drive";
+import { storeCoverForBook } from "@/lib/cover-extractor";
+import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 const BATCH = 8; // livros por iteração
 const CONCURRENCY = 4; // paralelo por iteração
-const PARTIAL_MB = 1.5; // MB a descarregar por EPUB inicialmente
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL
   ?? (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
@@ -54,14 +53,14 @@ async function processBatch() {
             batchFailed++;
             return;
           }
-          const bytes = Math.round(PARTIAL_MB * 1024 * 1024);
-          const result = await uploadCoverForBook(
+          const result = await storeCoverForBook(
             book.drive_file_id,
             book.id,
-            (id) => downloadPartialWithConfig(id, bytes),
+            (id) => downloadFromDriveWithConfig(id),
           );
 
           if (!result) {
+            await markCoverFailed(book.id);
             batchFailed++;
             errors.push({ bookId: book.id, title: book.title, reason: "Sem capa no EPUB" });
             return;
@@ -69,7 +68,6 @@ async function processBatch() {
 
           await updateBookCover(book.id, {
             cover_url: result.url,
-            cover_drive_file_id: result.fileId,
           });
           batchSuccess++;
         } catch (err) {

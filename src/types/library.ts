@@ -38,10 +38,10 @@ export type Book = {
   publisher: string | null;
   isbn: string | null;
   description: string | null;
-  /** URL de imagem embebível da capa, alojada no Google Drive (conta das capas). */
+  /** URL interno da capa (guardada no Firestore), ex.: /api/books/ID/cover?v=123 */
   cover_url: string | null;
-  /** ID do ficheiro da capa no Google Drive — usado para substituir/apagar a capa antiga. */
-  cover_drive_file_id?: string | null;
+  /** true se o EPUB não tem capa extraível (evita tentar de novo em cada sync). */
+  cover_failed?: boolean;
   epub_url: string | null;
   filesize: number | null;
   modified_at: string | null;

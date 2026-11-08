@@ -5,14 +5,18 @@
 | Antes (Supabase) | Agora |
 |---|---|
 | Tabela `books` no Postgres | Coleção `books` no Firestore (só metadados + links) |
-| Bucket `covers` (imagens reais) | Ficheiro no Google Drive (conta à tua escolha) + link no Firestore |
+| Bucket `covers` (imagens reais) | Coleção `covers` no Firestore (JPEG 240×360, ~15–30 KB cada) |
 | Bucket `epubs` (cache temporário) | **Removido** — os EPUBs nunca saem do Google Drive |
 | Tabela `cover_sync_state` | Coleção `sync_state` (docs `books` e `covers`) |
 | Pesquisa `ILIKE` + `pg_trgm` | Filtragem em memória no servidor (ideal até uns milhares de livros) |
 
-O Firebase (Firestore) só guarda texto: título, autor, série, o `drive_file_id`
-do EPUB e o link da capa no Drive. Nunca guarda binários — por isso fica
-sempre muito longe dos limites do plano gratuito, mesmo com milhares de livros.
+O Firestore guarda os metadados (título, autor, série, `drive_file_id` do EPUB)
+e as capas já comprimidas, numa coleção separada. Nunca guarda EPUBs.
+2000 capas ocupam cerca de 40–60 MB, ~5% do 1 GiB gratuito. A rota
+`/api/books/[id]/cover` responde com cache de 1 ano, por isso as leituras
+ao Firestore só acontecem na primeira vez que cada capa é pedida.
+
+Não usamos o Firebase Storage porque exige o plano pago (Blaze, com cartão).
 
 ## Passo 1 — Criar o projeto Firebase
 
@@ -35,42 +39,12 @@ Continuas a usar a mesma conta de serviço Google que já usavas para o Drive
 onde estão os EPUBs (`GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` /
 `GOOGLE_DRIVE_FOLDER_ID`). Nada muda aqui.
 
-## Passo 3 — Conta Google separada para as capas
-
-Escolheste guardar as capas numa **conta Google diferente** da dos livros.
-Passos:
-
-1. Nessa outra conta Google, entra em [console.cloud.google.com](https://console.cloud.google.com)
-   e cria (ou usa) um projeto.
-2. Activa a **Google Drive API** (APIs e serviços → Activar APIs → procurar "Google Drive API").
-3. Cria uma **conta de serviço** (IAM e administração → Contas de serviço → Criar).
-4. Gera uma chave JSON para essa conta de serviço (separador "Chaves" → Adicionar chave → JSON).
-5. Nessa mesma conta Google (a pessoal, no Drive normal), cria uma pasta
-   chamada, por exemplo, `KoboSync Capas`.
-6. **Partilha essa pasta** com o e-mail da conta de serviço (algo como
-   `kobosync-covers@projeto-b.iam.gserviceaccount.com`), com permissão de
-   **Editor** — é assim que a conta de serviço consegue lá escrever.
-7. Copia o ID da pasta a partir do URL
-   (`https://drive.google.com/drive/folders/ESTE_ID_AQUI`).
-8. Preenche `GOOGLE_COVERS_CLIENT_EMAIL`, `GOOGLE_COVERS_PRIVATE_KEY` e
-   `GOOGLE_COVERS_FOLDER_ID` no `.env`.
-
-As capas ficam com partilha "qualquer pessoa com o link pode ver" (só a
-imagem, gerada automaticamente — nunca dás acesso à tua Drive toda) e são
-servidas através do endpoint oficial de thumbnails do Google
-(`drive.google.com/thumbnail?id=...`), pensado exactamente para isto.
-
-> Se preferires simplificar mais tarde e usar a mesma conta dos livros
-> para as capas também, basta deixar `GOOGLE_COVERS_CLIENT_EMAIL` e
-> `GOOGLE_COVERS_PRIVATE_KEY` vazios e definir apenas `GOOGLE_COVERS_FOLDER_ID`
-> com uma pasta na conta dos livros.
-
-## Passo 4 — Instalar dependências e variáveis de ambiente
+## Passo 3 — Instalar dependências e variáveis de ambiente
 
 ```bash
 npm install
 cp .env.example .env.local
-# preenche o .env.local com os valores dos passos 1–3
+# preenche o .env.local com os valores dos passos 1–2
 ```
 
 Na Vercel: **Project Settings → Environment Variables**, adiciona as mesmas
@@ -78,7 +52,7 @@ variáveis (a `FIREBASE_PRIVATE_KEY` e as `*_PRIVATE_KEY` do Drive podem ser
 coladas directamente — a Vercel guarda `\n` correctamente se colares o texto
 tal como está no `.env.local`).
 
-## Passo 5 — Primeira sincronização
+## Passo 4 — Primeira sincronização
 
 ```bash
 npm run dev
@@ -86,7 +60,7 @@ npm run dev
 
 Abre a app e clica em **"Sincronizar"** (lista os EPUBs do Drive e cria as
 entradas no Firestore) e depois em **"Sincronizar capas"** (extrai e envia
-as capas para o Drive de capas).
+as capas no Firestore).
 
 ## Notas sobre a pesquisa
 
@@ -107,7 +81,4 @@ para o Firestore.
 - Rota duplicada `/api/covers/sync` (mantida apenas `/api/covers/sync-all`,
   que já fazia o mesmo de forma mais robusta, com processamento em
   background via `after()`).
-- `/api/covers/migrate` foi reaproveitada: já não corrige URLs assinadas
-  expiradas (o Drive não tem esse problema), mas agora verifica se as capas
-  continuam acessíveis e limpa as que tiverem sido apagadas manualmente do
-  Drive.
+- `/api/covers/migrate` foi reaproveitada: agora limpa o `cover_url` de livros cuja capa já não existe na coleção `covers`.
