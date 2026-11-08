@@ -83,6 +83,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncingCovers, setSyncingCovers] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const [status, setStatus] = useState<Status>(null);
   const [darkMode, setDarkMode] = useState(false);
   const [authors, setAuthors] = useState<string[]>([]);
@@ -212,7 +213,7 @@ export default function Home() {
       controller.abort();
       window.clearTimeout(timeout);
     };
-  }, [page, searchQuery, showSelectedOnly, pageSize]);
+  }, [page, searchQuery, showSelectedOnly, pageSize, reloadKey]);
 
   useEffect(() => {
     if (!showSelectedOnly) return;
@@ -307,51 +308,18 @@ export default function Home() {
       const result   = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Sincronização falhou.");
 
-      if (!result.running) {
-        // Já estava a correr ou terminou instantaneamente
-        setStatus({ type: "info", message: result.message ?? "Sync em curso…" });
-        return;
-      }
-
-      setStatus({ type: "info", message: "A pesquisar livros no Google Drive… (podes fechar esta janela)" });
-
-      // 2. Polling do progresso a cada 4s
-      const interval = window.setInterval(async () => {
-        try {
-          const progRes = await fetch("/api/sync/progress");
-          const prog    = await progRes.json();
-
-          if (!prog.running && prog.started) {
-            // Concluído
-            window.clearInterval(interval);
-            setSyncing(false);
-            setPage(1);
-            setShowSelectedOnly(false);
-            // Actualizar lista de autores
-            fetch("/api/authors").then(r => r.json()).then(d => {
-              if (d.authors) setAuthors(d.authors);
-            }).catch(() => {});
-            const newB = prog.newBooks ?? 0;
-            setStatus({
-              type:    "success",
-              message: newB > 0
-                ? `${newB} livro${newB !== 1 ? "s" : ""} novo${newB !== 1 ? "s" : ""} adicionado${newB !== 1 ? "s" : ""}. ${prog.found ?? 0} no Drive total.`
-                : `Sem livros novos. ${prog.found ?? 0} livros no Drive.`,
-            });
-          } else if (prog.running) {
-            const found = prog.found ?? 0;
-            const ins   = prog.newBooks ?? 0;
-            setStatus({
-              type:    "info",
-              message: found > 0
-                ? `Drive: ${found} encontrados, ${ins} novos… (podes fechar esta janela)`
-                : "A pesquisar no Google Drive… (podes fechar esta janela)",
-            });
-          }
-        } catch {
-          // erro de rede no polling — continua a tentar
-        }
-      }, 4000);
+      // O servidor devolve o resultado já concluído (sem polling).
+      setSyncing(false);
+      setPage(1);
+      setShowSelectedOnly(false);
+      setReloadKey((k) => k + 1);
+      fetch("/api/authors").then(r => r.json()).then(d => {
+        if (d.authors) setAuthors(d.authors);
+      }).catch(() => {});
+      setStatus({
+        type: "success",
+        message: result.message ?? `${result.found ?? 0} livros no Drive.`,
+      });
 
     } catch (error) {
       setSyncing(false);
@@ -376,6 +344,7 @@ export default function Home() {
         // Já estava concluído ou a correr
         setStatus({ type: "success", message: data.message });
         setSyncingCovers(false);
+        setReloadKey((k) => k + 1);
         return;
       }
 
@@ -395,6 +364,7 @@ export default function Home() {
               message: `Capas concluídas: ${prog.progress?.success ?? 0} extraídas${(prog.progress?.failed ?? 0) > 0 ? `, ${prog.progress.failed} falhas` : ""}.`,
             });
             setPage(1);
+            setReloadKey((k) => k + 1);
           } else {
             const pct = prog.progress?.percent ?? 0;
             const ok  = prog.progress?.success ?? 0;
@@ -419,9 +389,10 @@ export default function Home() {
       const data = await res.json();
       setStatus({
         type: "success",
-        message: `Capas corrigidas: ${data.fixed} URLs actualizadas, ${data.clearedExpired} expiradas limpas.`,
+        message: `Capas verificadas: ${data.clearedExpired} em falta limpas.`,
       });
       setPage(1);
+      setReloadKey((k) => k + 1);
     } catch (err) {
       setStatus({ type: "error", message: "Erro ao migrar capas." });
     }

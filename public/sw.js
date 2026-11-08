@@ -1,5 +1,5 @@
 // KoboSync Service Worker
-const CACHE_NAME = 'kobosync-v1';
+const CACHE_NAME = 'kobosync-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -41,8 +41,16 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Supabase e Google Drive: Network only
-  if (url.hostname.includes('supabase') || url.hostname.includes('googleapis')) {
+  // Páginas (navegação): rede primeiro, para nunca ficar preso a uma versão antiga da app
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/').then((c) => c || new Response('Offline', { status: 503 })))
+    );
+    return;
+  }
+
+  // Google Drive: Network only
+  if (url.hostname.includes('googleapis')) {
     event.respondWith(fetch(event.request));
     return;
   }
