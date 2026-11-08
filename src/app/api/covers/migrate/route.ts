@@ -1,60 +1,33 @@
 /**
  * POST /api/covers/migrate
- *
- * Com capas alojadas no Google Drive (links "anyone with the link"), os
- * URLs não expiram como acontecia com signed URLs do Supabase Storage.
- * Esta rota faz, por isso, uma verificação de manutenção: confirma que
- * cada capa gravada continua acessível no Drive e limpa as que já não
- * respondem (ficheiro apagado/permissão revogada), para que o sync de
- * capas as volte a processar.
+ * Manutenção: limpa o cover_url de livros cuja capa já não existe na
+ * colecção "covers" do Firestore, para o sync de capas os voltar a processar.
+ * GET devolve apenas estatísticas.
  */
 import { NextResponse } from "next/server";
 import { getAllBooksCached, updateBookCover } from "@/lib/firebase/books";
+import { listCoverIds } from "@/lib/firebase/covers";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-async function isCoverReachable(url: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, { method: "GET", signal: AbortSignal.timeout(8000) });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function POST() {
-  const books = await getAllBooksCached();
-  const withCover = books.filter((b) => b.cover_url);
+  const [books, coverIds] = await Promise.all([getAllBooksCached(true), listCoverIds()]);
+  const orphans = books.filter((b) => b.cover_url && !coverIds.has(b.id));
 
-  let clearedExpired = 0;
-  const CONCURRENCY = 8;
-
-  for (let i = 0; i < withCover.length; i += CONCURRENCY) {
-    const chunk = withCover.slice(i, i + CONCURRENCY);
-    await Promise.all(
-      chunk.map(async (book) => {
-        const ok = await isCoverReachable(book.cover_url!);
-        if (!ok) {
-          await updateBookCover(book.id, { cover_url: null, cover_drive_file_id: null });
-          clearedExpired++;
-        }
-      }),
-    );
+  for (const book of orphans) {
+    await updateBookCover(book.id, { cover_url: null });
   }
 
   const refreshed = await getAllBooksCached(true);
-  const withCoverCount = refreshed.filter((b) => b.cover_url).length;
-  const noCoverCount = refreshed.filter((b) => !b.cover_url).length;
-
   return NextResponse.json({
     fixed: 0,
-    skipped: withCover.length - clearedExpired,
-    clearedExpired,
+    skipped: books.length - orphans.length,
+    clearedExpired: orphans.length,
     stats: {
-      withCover: withCoverCount,
-      withoutCover: noCoverCount,
-      failed: 0,
+      withCover: refreshed.filter((b) => b.cover_url).length,
+      withoutCover: refreshed.filter((b) => !b.cover_url).length,
+      failed: refreshed.filter((b) => b.cover_failed).length,
     },
   });
 }
@@ -63,14 +36,11 @@ export async function GET() {
   const books = await getAllBooksCached();
   const withCover = books.filter((b) => b.cover_url).length;
   const noCover = books.filter((b) => !b.cover_url).length;
-
   return NextResponse.json({
     total: books.length,
     withGoodUrl: withCover,
     noCover,
     recommendation:
-      noCover > 0
-        ? `${noCover} livros ainda sem capa — usa "Sincronizar capas".`
-        : "OK — todos os livros têm capa.",
+      noCover > 0 ? `${noCover} livros sem capa — usa "Sincronizar capas".` : "OK — todos os livros têm capa.",
   });
 }

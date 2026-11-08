@@ -31,7 +31,7 @@ function docToBook(doc: FirebaseFirestore.QueryDocumentSnapshot): Book {
     isbn: data.isbn ?? null,
     description: data.description ?? null,
     cover_url: data.cover_url ?? null,
-    cover_drive_file_id: data.cover_drive_file_id ?? null,
+    cover_failed: data.cover_failed ?? false,
     epub_url: data.epub_url ?? null,
     filesize: data.filesize ?? null,
     modified_at: data.modified_at ?? null,
@@ -187,7 +187,6 @@ export async function insertNewBooks(
         isbn: null,
         description: null,
         cover_url: null,
-        cover_drive_file_id: null,
         epub_url: null,
         filesize: file.size ? Number(file.size) : null,
         modified_at: file.modifiedTime ?? null,
@@ -205,12 +204,20 @@ export async function insertNewBooks(
 
 export async function updateBookCover(
   id: string,
-  cover: { cover_url: string | null; cover_drive_file_id: string | null },
+  cover: { cover_url: string | null },
 ): Promise<void> {
   const db = getDb();
   await db.collection(COLLECTION).doc(id).update({
     cover_url: cover.cover_url,
-    cover_drive_file_id: cover.cover_drive_file_id,
+    cover_failed: false,
+    updated_at: FieldValue.serverTimestamp(),
+  });
+  invalidateBooksCache();
+}
+
+export async function markCoverFailed(id: string): Promise<void> {
+  await getDb().collection(COLLECTION).doc(id).update({
+    cover_failed: true,
     updated_at: FieldValue.serverTimestamp(),
   });
   invalidateBooksCache();
@@ -219,11 +226,11 @@ export async function updateBookCover(
 /** Livros sem capa e com drive_file_id (candidatos ao sync de capas). */
 export async function listBooksWithoutCover(limit?: number): Promise<Book[]> {
   const all = await getAllBooksCached();
-  const filtered = all.filter((b) => !b.cover_url && b.drive_file_id);
+  const filtered = all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id);
   return limit ? filtered.slice(0, limit) : filtered;
 }
 
 export async function countBooksWithoutCover(): Promise<number> {
   const all = await getAllBooksCached();
-  return all.filter((b) => !b.cover_url && b.drive_file_id).length;
+  return all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id).length;
 }

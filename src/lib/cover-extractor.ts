@@ -1,12 +1,10 @@
 import JSZip from "jszip";
-import { getServerConfig } from "@/lib/env";
-import { uploadCoverToDrive, deleteCoverFromDrive } from "@/lib/google-drive";
+import { saveCover } from "@/lib/firebase/covers";
 
 /** Dimensões e qualidade máximas para as capas guardadas no Drive */
-const COVER_MAX_W     = 300;
-const COVER_MAX_H     = 450;
-const COVER_QUALITY   = 80; // JPEG 0-100
-const COVER_MAX_BYTES = 250 * 1024; // 250 KB — aviso se ainda ficar grande após compressão
+const COVER_MAX_W     = 240;
+const COVER_MAX_H     = 360;
+const COVER_QUALITY   = 72; // JPEG 0-100
 
 /**
  * Redimensiona e comprime um buffer de imagem para JPEG.
@@ -90,58 +88,24 @@ export async function extractCoverFromEpub(
 }
 
 /**
- * Extrai a capa de um EPUB do Google Drive (conta dos livros), COMPRIME
- * para JPEG 300×450 e faz upload para a pasta de capas no Google Drive
- * (pode ser uma conta Google diferente). Nada é guardado no Firebase.
- *
- * Devolve o ID do ficheiro no Drive e o URL de imagem embebível.
+ * Extrai a capa de um EPUB do Google Drive (só leitura), comprime-a para
+ * JPEG 240×360 e guarda-a no Firestore (coleção "covers").
+ * Devolve o URL interno (versionado) a gravar em books.cover_url.
  */
-export async function uploadCoverForBook(
+export async function storeCoverForBook(
   driveFileId: string,
   bookId: string,
   downloadFn: (id: string) => Promise<ArrayBuffer>,
-  previousCoverFileId?: string | null,
-): Promise<{ url: string; fileId: string } | null> {
+): Promise<{ url: string } | null> {
   try {
     const epubBuffer = await downloadFn(driveFileId);
     const cover = await extractCoverFromEpub(epubBuffer);
     if (!cover) return null;
 
-    const { buffer: compressed, mimeType } = await compressToJpeg(cover.data);
+    const { buffer, mimeType } = await compressToJpeg(cover.data);
+    await saveCover(bookId, buffer, mimeType);
 
-    if (compressed.length > COVER_MAX_BYTES * 2) {
-      console.warn(
-        `[Cover] Imagem ainda grande após compressão (${(compressed.length / 1024).toFixed(0)} KB) para ${bookId}`,
-      );
-    }
-
-    const config = getServerConfig();
-    const coversConfig = {
-      clientEmail: config.coversClientEmail,
-      privateKey: config.coversPrivateKey,
-      folderId: config.coversFolderId!,
-      sharedDriveId: config.coversSharedDriveId,
-    };
-
-    if (!coversConfig.folderId) {
-      throw new Error(
-        "GOOGLE_COVERS_FOLDER_ID não está configurado — define a pasta do Drive onde as capas devem ficar.",
-      );
-    }
-
-    // Se já existia uma capa antiga deste livro no Drive, apaga-a primeiro
-    if (previousCoverFileId) {
-      await deleteCoverFromDrive(coversConfig, previousCoverFileId);
-    }
-
-    const { fileId, url } = await uploadCoverToDrive(
-      coversConfig,
-      `${bookId}.jpg`,
-      compressed,
-      mimeType,
-    );
-
-    return { url, fileId };
+    return { url: `/api/books/${bookId}/cover?v=${Date.now()}` };
   } catch (error) {
     console.error(`[Cover] Error for book ${bookId}:`, error);
     return null;
