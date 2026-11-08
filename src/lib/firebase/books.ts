@@ -1,90 +1,98 @@
-import { FieldValue } from "firebase-admin/firestore";
 import { getDb } from "./admin";
 import type { Book } from "@/types/library";
 
-const COLLECTION = "books";
+/**
+ * MODELO DE DADOS (pensado para o plano gratuito do Firestore: 50k leituras/dia)
+ *
+ * Em vez de 1 documento por livro (2390 leituras para carregar a biblioteca),
+ * os livros ficam agrupados em "chunks" de até 200 livros por documento:
+ *
+ *   library/c0000  { books: [ {...}, {...}, ... ] }
+ *   library/c0001  { books: [ ... ] }
+ *
+ * Carregar a biblioteca inteira custa ~12 leituras (para 2390 livros).
+ * O id de cada livro é o drive_file_id (estável e sem duplicados).
+ * As capas ficam noutra colecção ("covers"), 1 documento por livro,
+ * lidas só quando o browser pede a imagem.
+ */
+const COLLECTION = "library";
+const CHUNK_SIZE = 200;
 
-// ── Cache em memória (por instância serverless) ─────────────────────────────
-// O Firestore cobra por leitura de documento; para uma biblioteca pessoal
-// (até alguns milhares de livros) é muito mais barato e rápido ler a coleção
-// inteira uma vez e filtrar/paginar em memória do que fazer queries repetidas.
-let cache: { books: Book[]; ts: number } | null = null;
-let inflight: Promise<Book[]> | null = null;
-const CACHE_TTL_MS = 15_000;
+type Chunk = { id: string; books: Book[] };
+
+type Loaded = {
+  books: Book[]; // ordenados por título
+  chunkOf: Map<string, string>; // book id -> id do documento (chunk)
+  ts: number;
+};
+
+let cache: Loaded | null = null;
+let inflight: Promise<Loaded> | null = null;
+const CACHE_TTL_MS = 60_000;
 
 export function invalidateBooksCache() {
   cache = null;
   inflight = null;
 }
 
-function docToBook(doc: FirebaseFirestore.QueryDocumentSnapshot): Book {
-  const data = doc.data();
-  return {
-    id: doc.id,
-    drive_file_id: data.drive_file_id ?? null,
-    title: data.title ?? "",
-    author: data.author ?? null,
-    series: data.series ?? null,
-    series_index: data.series_index ?? null,
-    language: data.language ?? null,
-    publisher: data.publisher ?? null,
-    isbn: data.isbn ?? null,
-    description: data.description ?? null,
-    cover_url: data.cover_url ?? null,
-    cover_failed: data.cover_failed ?? false,
-    epub_url: data.epub_url ?? null,
-    filesize: data.filesize ?? null,
-    modified_at: data.modified_at ?? null,
-    created_at: data.created_at ?? null,
-    updated_at: data.updated_at ?? null,
-  };
+const chunkName = (n: number) => `c${String(n).padStart(4, "0")}`;
+
+async function loadChunks(): Promise<Chunk[]> {
+  const snap = await getDb().collection(COLLECTION).get();
+  return snap.docs
+    .map((d) => ({ id: d.id, books: ((d.data().books ?? []) as Book[]) }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function fetchAllBooks(): Promise<Book[]> {
-  const db = getDb();
-  const snapshot = await db.collection(COLLECTION).get();
-  const books = snapshot.docs.map(docToBook);
-  books.sort((a, b) => a.title.localeCompare(b.title, "pt", { sensitivity: "base" }));
-  return books;
+async function fetchAll(): Promise<Loaded> {
+  const chunks = await loadChunks();
+  const chunkOf = new Map<string, string>();
+  const books: Book[] = [];
+  for (const chunk of chunks) {
+    for (const book of chunk.books) {
+      chunkOf.set(book.id, chunk.id);
+      books.push(book);
+    }
+  }
+  books.sort((a, b) => (a.title ?? "").localeCompare(b.title ?? "", "pt", { sensitivity: "base" }));
+  return { books, chunkOf, ts: Date.now() };
 }
 
-/** Devolve todos os livros, usando cache de curta duração. */
-export async function getAllBooksCached(forceRefresh = false): Promise<Book[]> {
-  if (!forceRefresh && cache && Date.now() - cache.ts < CACHE_TTL_MS) {
-    return cache.books;
-  }
-  if (!forceRefresh && inflight) {
-    return inflight;
-  }
+async function getLoaded(forceRefresh = false): Promise<Loaded> {
+  if (!forceRefresh && cache && Date.now() - cache.ts < CACHE_TTL_MS) return cache;
+  if (!forceRefresh && inflight) return inflight;
 
-  inflight = fetchAllBooks().then((books) => {
-    cache = { books, ts: Date.now() };
+  inflight = fetchAll().then((loaded) => {
+    cache = loaded;
     inflight = null;
-    return books;
+    return loaded;
   });
-
   return inflight;
 }
 
-const stripAccents = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+/** Devolve todos os livros (cache de 60s por instância). */
+export async function getAllBooksCached(forceRefresh = false): Promise<Book[]> {
+  return (await getLoaded(forceRefresh)).books;
+}
+
+// ── Pesquisa (em memória) ──────────────────────────────────────────────────
+
+const stripAccents = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 const normalize = (s: string) => stripAccents(s.toLowerCase().trim());
 
 function matchesSearch(book: Book, term: string): boolean {
   const needle = normalize(term);
-  const haystacks = [book.title, book.author, book.series, book.publisher, book.isbn];
-  return haystacks.some((field) => field && normalize(field).includes(needle));
+  return [book.title, book.author, book.series, book.publisher, book.isbn].some(
+    (field) => field && normalize(field).includes(needle),
+  );
 }
 
-export type ListBooksOptions = {
-  from?: number;
-  to?: number;
-};
+export type ListBooksOptions = { from?: number; to?: number };
 
 export async function listBooks(search?: string, options: ListBooksOptions = {}): Promise<Book[]> {
   const all = await getAllBooksCached();
   const term = search?.trim();
   const filtered = term ? all.filter((b) => matchesSearch(b, term)) : all;
-
   if (options.from !== undefined && options.to !== undefined) {
     return filtered.slice(options.from, options.to + 1);
   }
@@ -94,90 +102,56 @@ export async function listBooks(search?: string, options: ListBooksOptions = {})
 export async function countBooks(search?: string): Promise<number> {
   const all = await getAllBooksCached();
   const term = search?.trim();
-  if (!term) return all.length;
-  return all.filter((b) => matchesSearch(b, term)).length;
+  return term ? all.filter((b) => matchesSearch(b, term)).length : all.length;
 }
 
 export async function listBooksByIds(ids: string[]): Promise<Book[]> {
   if (ids.length === 0) return [];
-  const db = getDb();
-  const uniqueIds = [...new Set(ids)];
-
-  const CHUNK = 300; // getAll suporta muitos refs, mas mantemos lotes seguros
-  const results: Book[] = [];
-
-  for (let i = 0; i < uniqueIds.length; i += CHUNK) {
-    const chunk = uniqueIds.slice(i, i + CHUNK);
-    const refs = chunk.map((id) => db.collection(COLLECTION).doc(id));
-    const snaps = await db.getAll(...refs);
-    for (const snap of snaps) {
-      if (snap.exists) {
-        results.push(docToBook(snap as FirebaseFirestore.QueryDocumentSnapshot));
-      }
-    }
-  }
-
-  results.sort((a, b) => a.title.localeCompare(b.title, "pt", { sensitivity: "base" }));
-  return results;
+  const wanted = new Set(ids);
+  return (await getAllBooksCached()).filter((b) => wanted.has(b.id));
 }
 
 export async function getBookById(id: string): Promise<Book | null> {
-  const db = getDb();
-  const snap = await db.collection(COLLECTION).doc(id).get();
-  if (!snap.exists) return null;
-  return docToBook(snap as FirebaseFirestore.QueryDocumentSnapshot);
+  const all = await getAllBooksCached();
+  return all.find((b) => b.id === id) ?? null;
+}
+
+function uniqueSorted(values: Array<string | null>): string[] {
+  return [...new Set(values.filter((v): v is string => !!v))].sort((a, b) =>
+    a.localeCompare(b, "pt", { sensitivity: "base" }),
+  );
 }
 
 export async function listAuthors(): Promise<string[]> {
-  const all = await getAllBooksCached();
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const book of all) {
-    if (book.author && !seen.has(book.author)) {
-      seen.add(book.author);
-      result.push(book.author);
-    }
-  }
-  return result.sort((a, b) => a.localeCompare(b, "pt", { sensitivity: "base" }));
+  return uniqueSorted((await getAllBooksCached()).map((b) => b.author));
 }
 
 export async function listSeries(): Promise<string[]> {
-  const all = await getAllBooksCached();
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const book of all) {
-    if (book.series && !seen.has(book.series)) {
-      seen.add(book.series);
-      result.push(book.series);
-    }
-  }
-  return result.sort((a, b) => a.localeCompare(b, "pt", { sensitivity: "base" }));
+  return uniqueSorted((await getAllBooksCached()).map((b) => b.series));
 }
 
+// ── Escrita ────────────────────────────────────────────────────────────────
+
 /**
- * Insere apenas os livros cujo drive_file_id ainda não existe na coleção.
- * Devolve o número de livros novos inseridos.
+ * Insere apenas os livros cujo drive_file_id ainda não existe.
+ * Custo: ~12 leituras + ~12 escritas para toda a biblioteca.
  */
 export async function insertNewBooks(
   files: Array<{ id: string; name: string; size?: string; modifiedTime?: string }>,
   basicMetadataFromFilename: (name: string) => { title: string; author: string | null },
 ): Promise<number> {
   const db = getDb();
-  const existing = await getAllBooksCached(true);
-  const knownIds = new Set(existing.map((b) => b.drive_file_id).filter(Boolean));
+  const chunks = await loadChunks();
+  const known = new Set(chunks.flatMap((c) => c.books.map((b) => b.id)));
 
-  const newFiles = files.filter((f) => !knownIds.has(f.id));
-  if (newFiles.length === 0) return 0;
-
-  const BATCH = 450; // limite do Firestore é 500 operações por batch
-  for (let i = 0; i < newFiles.length; i += BATCH) {
-    const chunk = newFiles.slice(i, i + BATCH);
-    const batch = db.batch();
-    for (const file of chunk) {
-      const meta = basicMetadataFromFilename(file.name);
-      const ref = db.collection(COLLECTION).doc();
-      batch.set(ref, {
-        drive_file_id: file.id,
+  const now = new Date().toISOString();
+  const fresh: Book[] = files
+    .filter((f) => !known.has(f.id))
+    .map((f) => {
+      const meta = basicMetadataFromFilename(f.name);
+      return {
+        id: f.id,
+        drive_file_id: f.id,
         title: meta.title,
         author: meta.author,
         series: null,
@@ -187,40 +161,89 @@ export async function insertNewBooks(
         isbn: null,
         description: null,
         cover_url: null,
+        cover_failed: false,
         epub_url: null,
-        filesize: file.size ? Number(file.size) : null,
-        modified_at: file.modifiedTime ?? null,
-        created_at: FieldValue.serverTimestamp(),
-        updated_at: FieldValue.serverTimestamp(),
-      });
+        filesize: f.size ? Number(f.size) : null,
+        modified_at: f.modifiedTime ?? null,
+        created_at: now,
+        updated_at: now,
+      };
+    });
+
+  if (fresh.length === 0) return 0;
+
+  const touched = new Map<string, Book[]>();
+  let last = chunks[chunks.length - 1];
+  let nextIndex = chunks.length;
+  let queue = [...fresh];
+
+  while (queue.length > 0) {
+    if (!last || last.books.length >= CHUNK_SIZE) {
+      last = { id: chunkName(nextIndex++), books: [] };
+      chunks.push(last);
     }
-    await batch.commit();
+    const room = CHUNK_SIZE - last.books.length;
+    last.books = [...last.books, ...queue.slice(0, room)];
+    queue = queue.slice(room);
+    touched.set(last.id, last.books);
+  }
+
+  const batch = db.batch();
+  for (const [id, books] of touched) {
+    batch.set(db.collection(COLLECTION).doc(id), { books });
+  }
+  await batch.commit();
+
+  invalidateBooksCache();
+  console.log(`[Sync] Inserted ${fresh.length} new books in ${touched.size} chunk(s)`);
+  return fresh.length;
+}
+
+export type BookPatch = { id: string; cover_url?: string | null; cover_failed?: boolean };
+
+/**
+ * Aplica alterações a vários livros. Agrupa por chunk e faz 1 transacção por
+ * chunk (1 leitura + 1 escrita), por isso é barato mesmo com muitos livros.
+ */
+export async function patchBooks(patches: BookPatch[]): Promise<void> {
+  if (patches.length === 0) return;
+  const db = getDb();
+  const { chunkOf } = await getLoaded();
+
+  const byChunk = new Map<string, Map<string, BookPatch>>();
+  for (const patch of patches) {
+    const chunkId = chunkOf.get(patch.id);
+    if (!chunkId) continue;
+    if (!byChunk.has(chunkId)) byChunk.set(chunkId, new Map());
+    byChunk.get(chunkId)!.set(patch.id, patch);
+  }
+
+  const now = new Date().toISOString();
+  for (const [chunkId, group] of byChunk) {
+    const ref = db.collection(COLLECTION).doc(chunkId);
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const books = ((snap.data()?.books ?? []) as Book[]).map((book) => {
+        const patch = group.get(book.id);
+        if (!patch) return book;
+        const next: Book = { ...book, updated_at: now };
+        if (patch.cover_url !== undefined) next.cover_url = patch.cover_url;
+        if (patch.cover_failed !== undefined) next.cover_failed = patch.cover_failed;
+        return next;
+      });
+      tx.set(ref, { books });
+    });
   }
 
   invalidateBooksCache();
-  console.log(`[Sync] Inserted ${newFiles.length} new books`);
-  return newFiles.length;
 }
 
-export async function updateBookCover(
-  id: string,
-  cover: { cover_url: string | null },
-): Promise<void> {
-  const db = getDb();
-  await db.collection(COLLECTION).doc(id).update({
-    cover_url: cover.cover_url,
-    cover_failed: false,
-    updated_at: FieldValue.serverTimestamp(),
-  });
-  invalidateBooksCache();
+export async function updateBookCover(id: string, cover: { cover_url: string | null }): Promise<void> {
+  await patchBooks([{ id, cover_url: cover.cover_url, cover_failed: false }]);
 }
 
 export async function markCoverFailed(id: string): Promise<void> {
-  await getDb().collection(COLLECTION).doc(id).update({
-    cover_failed: true,
-    updated_at: FieldValue.serverTimestamp(),
-  });
-  invalidateBooksCache();
+  await patchBooks([{ id, cover_failed: true }]);
 }
 
 /** Livros sem capa e com drive_file_id (candidatos ao sync de capas). */
@@ -231,6 +254,5 @@ export async function listBooksWithoutCover(limit?: number, forceRefresh = false
 }
 
 export async function countBooksWithoutCover(forceRefresh = false): Promise<number> {
-  const all = await getAllBooksCached(forceRefresh);
-  return all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id).length;
+  return (await listBooksWithoutCover(undefined, forceRefresh)).length;
 }

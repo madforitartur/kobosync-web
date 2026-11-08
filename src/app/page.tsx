@@ -380,7 +380,7 @@ export default function Home() {
       const data = await res.json();
       setStatus({
         type: "success",
-        message: `Capas verificadas: ${data.clearedExpired} em falta limpas.`,
+        message: `${data.fixed} livros sem capa vão ser tentados de novo. Clica em Sincronizar capas.`,
       });
       setPage(1);
       setReloadKey((k) => k + 1);

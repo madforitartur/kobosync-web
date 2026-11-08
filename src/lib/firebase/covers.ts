@@ -30,9 +30,3 @@ export async function getCover(bookId: string): Promise<{ data: Buffer; mime: st
   const doc = snap.data()!;
   return { data: Buffer.from(doc.data), mime: doc.mime ?? "image/jpeg" };
 }
-
-/** IDs de livros que têm capa guardada (lê só os IDs, sem os bytes). */
-export async function listCoverIds(): Promise<Set<string>> {
-  const snap = await getDb().collection(COLLECTION).select().get();
-  return new Set(snap.docs.map((d) => d.id));
-}
