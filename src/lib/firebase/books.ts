@@ -224,13 +224,13 @@ export async function markCoverFailed(id: string): Promise<void> {
 }
 
 /** Livros sem capa e com drive_file_id (candidatos ao sync de capas). */
-export async function listBooksWithoutCover(limit?: number): Promise<Book[]> {
-  const all = await getAllBooksCached();
+export async function listBooksWithoutCover(limit?: number, forceRefresh = false): Promise<Book[]> {
+  const all = await getAllBooksCached(forceRefresh);
   const filtered = all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id);
   return limit ? filtered.slice(0, limit) : filtered;
 }
 
-export async function countBooksWithoutCover(): Promise<number> {
-  const all = await getAllBooksCached();
+export async function countBooksWithoutCover(forceRefresh = false): Promise<number> {
+  const all = await getAllBooksCached(forceRefresh);
   return all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id).length;
 }
