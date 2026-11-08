@@ -333,52 +333,43 @@ export default function Home() {
   async function syncCovers() {
     setSyncingCovers(true);
     setStatus({ type: "info", message: "A iniciar sincronização de capas…" });
+    let ok = 0;
+    let failed = 0;
+    let total: number | null = null;
+    let emptyRounds = 0;
     try {
-      // 1. Dispara o processamento no servidor (responde imediatamente)
-      const res  = await fetch("/api/covers/sync-all", { method: "POST" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
+      // Cada chamada processa um lote (~35s) e diz quantas faltam.
+      // Mantém esta página aberta até terminar.
+      while (true) {
+        const res  = await fetch("/api/covers/sync-all", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
 
-      if (data.error) throw new Error(data.error);
-      if (data.message && !data.running) {
-        // Já estava concluído ou a correr
-        setStatus({ type: "success", message: data.message });
-        setSyncingCovers(false);
-        setReloadKey((k) => k + 1);
-        return;
+        ok     += data.success ?? 0;
+        failed += data.failed ?? 0;
+        if (total === null) total = ok + failed + (data.remaining ?? 0);
+
+        setReloadKey((k) => k + 1); // mostra as capas à medida que chegam
+        setStatus({
+          type: "info",
+          message: `Capas: ${ok + failed}/${total} processadas (${ok} ok${failed ? `, ${failed} sem capa` : ""})… mantém esta página aberta.`,
+        });
+
+        if (data.done || (data.remaining ?? 0) === 0) break;
+        emptyRounds = (data.processed ?? 0) === 0 ? emptyRounds + 1 : 0;
+        if (emptyRounds >= 3) throw new Error("O sync de capas deixou de progredir.");
       }
 
-      setStatus({ type: "info", message: `A processar ${data.total ?? "?"} capas em background…` });
-
-      // 2. Polling do progresso a cada 3s até concluir
-      const interval = window.setInterval(async () => {
-        try {
-          const progRes  = await fetch("/api/covers/progress");
-          const prog     = await progRes.json();
-
-          if (!prog.running) {
-            window.clearInterval(interval);
-            setSyncingCovers(false);
-            setStatus({
-              type:    (prog.progress?.failed ?? 0) > 0 ? "info" : "success",
-              message: `Capas concluídas: ${prog.progress?.success ?? 0} extraídas${(prog.progress?.failed ?? 0) > 0 ? `, ${prog.progress.failed} falhas` : ""}.`,
-            });
-            setPage(1);
-            setReloadKey((k) => k + 1);
-          } else {
-            const pct = prog.progress?.percent ?? 0;
-            const ok  = prog.progress?.success ?? 0;
-            const tot = prog.progress?.total   ?? "?";
-            setStatus({ type: "info", message: `Capas: ${pct}% (${ok}/${tot})…` });
-          }
-        } catch {
-          // erro de rede no polling — continua a tentar
-        }
-      }, 3000);
-
+      setStatus({
+        type: failed > 0 ? "info" : "success",
+        message: `Capas concluídas: ${ok} extraídas${failed > 0 ? `, ${failed} livros sem capa no EPUB` : ""}.`,
+      });
     } catch (err) {
-      setSyncingCovers(false);
       setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro nas capas" });
+    } finally {
+      setSyncingCovers(false);
+      setPage(1);
+      setReloadKey((k) => k + 1);
     }
   }
 
