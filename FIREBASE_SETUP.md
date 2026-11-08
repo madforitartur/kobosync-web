@@ -4,7 +4,7 @@
 
 | Antes (Supabase) | Agora |
 |---|---|
-| Tabela `books` no Postgres | Coleção `books` no Firestore (só metadados + links) |
+| Tabela `books` no Postgres | Coleção `library` no Firestore: livros agrupados em documentos de 200 (só metadados + links) |
 | Bucket `covers` (imagens reais) | Coleção `covers` no Firestore (JPEG 240×360, ~15–30 KB cada) |
 | Bucket `epubs` (cache temporário) | **Removido** — os EPUBs nunca saem do Google Drive |
 | Tabela `cover_sync_state` | Coleção `sync_state` (docs `books` e `covers`) |
@@ -82,3 +82,15 @@ para o Firestore.
   que já fazia o mesmo de forma mais robusta, com processamento em
   background via `after()`).
 - `/api/covers/migrate` foi reaproveitada: agora limpa o `cover_url` de livros cuja capa já não existe na coleção `covers`.
+
+## Quotas do plano gratuito (Spark)
+
+O Firestore gratuito permite por dia: 50 000 leituras, 20 000 escritas e
+20 000 apagamentos (repõe à meia-noite, hora do Pacífico). Por isso os livros
+estão agrupados em documentos de 200: carregar 2400 livros custa ~12 leituras
+em vez de 2400. Se vires `RESOURCE_EXHAUSTED: Quota exceeded`, esgotaste a quota
+do dia: espera pela reposição ou passa o projeto ao plano Blaze (as mesmas
+quotas gratuitas continuam a aplicar-se; só pagas o que as exceder).
+
+A coleção antiga `books` (1 documento por livro, da primeira versão) já não é
+usada e pode ser apagada na consola do Firebase.

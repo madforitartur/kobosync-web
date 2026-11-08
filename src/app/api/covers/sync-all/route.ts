@@ -10,12 +10,7 @@
  * comprimida e guardada no Firestore (colecção "covers").
  */
 import { NextResponse } from "next/server";
-import {
-  listBooksWithoutCover,
-  countBooksWithoutCover,
-  updateBookCover,
-  markCoverFailed,
-} from "@/lib/firebase/books";
+import { listBooksWithoutCover, patchBooks, type BookPatch } from "@/lib/firebase/books";
 import { storeCoverForBook } from "@/lib/cover-extractor";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 
@@ -37,6 +32,8 @@ export async function POST() {
     for (let i = 0; i < pending.length && Date.now() - started < TIME_BUDGET_MS; i += CONCURRENCY) {
       const chunk = pending.slice(i, i + CONCURRENCY);
 
+      const patches: BookPatch[] = [];
+
       await Promise.all(
         chunk.map(async (book) => {
           try {
@@ -47,23 +44,28 @@ export async function POST() {
             );
 
             if (!result) {
-              await markCoverFailed(book.id);
+              patches.push({ id: book.id, cover_failed: true });
               failed++;
               errors.push({ bookId: book.id, title: book.title, reason: "Sem capa no EPUB" });
               return;
             }
 
-            await updateBookCover(book.id, { cover_url: result.url });
+            patches.push({ id: book.id, cover_url: result.url, cover_failed: false });
             success++;
           } catch (err) {
+            // Marca como falhado para não ficar a repetir o mesmo livro para sempre
+            patches.push({ id: book.id, cover_failed: true });
             failed++;
             errors.push({ bookId: book.id, title: book.title, reason: String(err) });
           }
         }),
       );
+
+      // 1 escrita por grupo (agrupada por chunk) em vez de 1 por livro
+      await patchBooks(patches);
     }
 
-    const remaining = await countBooksWithoutCover(true);
+    const remaining = Math.max(0, pending.length - success - failed);
 
     return NextResponse.json({
       success,
