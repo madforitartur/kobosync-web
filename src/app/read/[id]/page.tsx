@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, BookOpen, Loader2, Maximize, Minimize, X } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
+import { clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
 
 type Chapter  = { id: string; title: string; html: string };
 type ReadData = { title: string; chapters: Chapter[] };
@@ -13,7 +14,6 @@ type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 type Theme    = "light" | "sepia" | "dark" | "paper" | "eink";
 type PageAnim = "none" | "fade" | "slide" | "curl";
 
-const CACHE_PREFIX  = "kobosync:reading:";
 const DOUBLE_TAP_MS = 280;
 const SWIPE_MIN_X   = 40;   // px mínimo horizontal para contar como swipe de página
 const CONTEXT_PX    = 32;   // px de contexto no topo após mudança de página
@@ -128,6 +128,9 @@ export default function ReadPage() {
   const tT = useRef(0);
   // Rastreia se houve movimento vertical significativo (para não confundir com swipe)
   const didScroll = useRef(false);
+  const bookRef   = useRef<Book | null>(null);
+  const restoredFor = useRef<string | null>(null);
+  const userMoved = useRef(false);
 
   // ── CSS ──
   useEffect(() => {
@@ -175,21 +178,35 @@ export default function ReadPage() {
 
   const fullHtml = useMemo(() => (data ? combineChapters(data.chapters) : ""), [data]);
 
+  useEffect(() => { bookRef.current = book; }, [book]);
+
   // ── Restaurar posição ──
+  // Usa a percentagem guardada (não os píxeis), por isso funciona mesmo que o
+  // tamanho da letra ou do ecrã tenham mudado. Volta a aplicar depois de as
+  // imagens/fontes carregarem, até o utilizador mexer.
   useEffect(() => {
-    if (!data || !scrollRef.current || restored) return;
-    try {
-      const raw = localStorage.getItem(CACHE_PREFIX + bookId);
-      if (raw) {
-        const c = JSON.parse(raw) as { scrollTop:number; timestamp:number };
-        if (Date.now() - c.timestamp < 28 * 24 * 3600 * 1000) {
-          skipSave.current = true;
-          scrollRef.current.scrollTo({ top: c.scrollTop, behavior: "auto" });
-          setRestored(true);
-        }
-      }
-    } catch {}
-  }, [data, bookId, restored]);
+    if (!data || restoredFor.current === bookId) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    restoredFor.current = bookId;
+
+    const saved = loadPosition(bookId);
+    if (!saved) return;
+
+    const apply = () => {
+      const max = el.scrollHeight - el.clientHeight;
+      const top = saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : saved.scrollTop;
+      skipSave.current = true;
+      el.scrollTo({ top, behavior: "auto" });
+    };
+
+    apply();
+    setRestored(true);
+    const timers = [150, 600, 1500].map((ms) =>
+      window.setTimeout(() => { if (!userMoved.current) apply(); }, ms),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [data, bookId]);
 
   // ── Progresso + guardar ──
   useEffect(() => {
@@ -197,29 +214,39 @@ export default function ReadPage() {
     const el = scrollRef.current;
     if (!el) return;
     let t: ReturnType<typeof setTimeout> | null = null;
+
+    const persist = () =>
+      savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight);
+
     const onScroll = () => {
       const max = el.scrollHeight - el.clientHeight;
       if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
       if (skipSave.current) { skipSave.current = false; return; }
       if (t) clearTimeout(t);
-      t = setTimeout(() => {
-        try {
-          localStorage.setItem(CACHE_PREFIX + bookId,
-            JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() }));
-        } catch {}
-      }, 500);
+      t = setTimeout(() => { t = null; persist(); }, 500);
     };
+    // Grava já o que estiver pendente (ex.: fechar o separador, mudar de app)
+    const flush = () => { if (t) { clearTimeout(t); t = null; persist(); } };
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    const onUserInput = () => { userMoved.current = true; };
+
     el.addEventListener("scroll", onScroll, { passive: true });
-    return () => { el.removeEventListener("scroll", onScroll); if (t) clearTimeout(t); };
+    el.addEventListener("wheel", onUserInput, { passive: true });
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      el.removeEventListener("wheel", onUserInput);
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
   }, [data, bookId]);
 
   const saveAndClose = useCallback(() => {
     const el = scrollRef.current;
-    if (el) {
-      try {
-        localStorage.setItem(CACHE_PREFIX + bookId,
-          JSON.stringify({ scrollTop: el.scrollTop, timestamp: Date.now() }));
-      } catch {}
+    if (el && restoredFor.current === bookId) {
+      savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight);
     }
     exitFs();
     router.back();
@@ -264,6 +291,7 @@ export default function ReadPage() {
 
   // ── Navegação por página ──
   const navigate = useCallback((dir: "next"|"prev") => {
+    userMoved.current = true;
     if (busy.current) return;
     const el = scrollRef.current;
     if (!el) return;
@@ -332,6 +360,7 @@ export default function ReadPage() {
     tY.current = t.clientY;
     tT.current = Date.now();
     didScroll.current = false;
+    userMoved.current = true;
   }, []);
 
   const onTouchMove = useCallback((e: React.TouchEvent) => {
@@ -568,7 +597,7 @@ export default function ReadPage() {
                 <span>{progress}% · 2× toque ou toque no centro → este menu</span>
                 <button
                   onPointerDown={() => {
-                    try { localStorage.removeItem(CACHE_PREFIX + bookId); setRestored(false); } catch {}
+                    clearPosition(bookId); setRestored(false);
                   }}
                   className="font-bold underline underline-offset-2">
                   Limpar posição

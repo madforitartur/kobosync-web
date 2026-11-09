@@ -8,8 +8,6 @@ import {
   ArrowLeft,
   BookOpen,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Download,
   Moon,
   RefreshCw,
@@ -21,24 +19,15 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { BookCover } from "@/components/BookCover";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { Pagination } from "@/components/Pagination";
+import { ReadingList } from "@/components/ReadingList";
+import { useReadingList } from "@/hooks/useReadingList";
+import { cleanBookTitle } from "@/lib/book-title";
 import { useIsTouchDevice } from "@/hooks/useDeviceType";
 import type { Book } from "@/types/library";
 
-// Limpa títulos de livros: remove prefixos numéricos, #N, underscores
-function cleanBookTitle(raw: string): string {
-  return raw
-    .replace(/^#?\d+[\s._\-–:]+/, "")  // "#4 ", "4. ", "004_", "4 - ", "4: "
-    .replace(/^#\d+\s*/, "")            // "#4" sozinho no início
-    .replace(/#\d+\s*/g, "")            // "#4" em qualquer posição restante
-    .replace(/_/g, " ")                  // underscores → espaços
-    .replace(/\s{2,}/g, " ")            // espaços duplos → simples
-    .replace(/\s*[-–]\s*(\.{2,})?$/, "") // traço/dash no final "Título -" ou "Título -..."
-    .trim();
-}
-
-
 type Status = { type: "info" | "success" | "error"; message: string } | null;
-type MobileTab = "library" | "selected" | "search";
+type MobileTab = "library" | "selected" | "search" | "reading";
 
 const PAGE_SIZE = 15;
 const MOBILE_PAGE_SIZE = 20;
@@ -84,6 +73,7 @@ export default function Home() {
   const [syncing, setSyncing] = useState(false);
   const [syncingCovers, setSyncingCovers] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const reading = useReadingList();
   const [status, setStatus] = useState<Status>(null);
   const [darkMode, setDarkMode] = useState(false);
   const [authors, setAuthors] = useState<string[]>([]);
@@ -271,6 +261,16 @@ export default function Home() {
     setContextMenu(null);
   }
 
+  function openReader(bookId: string) {
+    const link = document.createElement("a");
+    link.href = `/read/${bookId}`;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   function readBook(book: Book) {
     if (!book.epub_url && !book.drive_file_id) {
       setStatus({
@@ -280,13 +280,7 @@ export default function Home() {
       setContextMenu(null);
       return;
     }
-    const link = document.createElement("a");
-    link.href = `/read/${book.id}`;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    openReader(book.id);
     setContextMenu(null);
   }
 
@@ -452,16 +446,6 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function getPageNumbers(): (number | "ellipsis")[] {
-    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, i) => i + 1);
-    const pages: (number | "ellipsis")[] = [];
-    if (page <= 3) pages.push(1, 2, 3, "ellipsis", totalPages);
-    else if (page >= totalPages - 2)
-      pages.push(1, "ellipsis", totalPages - 2, totalPages - 1, totalPages);
-    else pages.push(1, "ellipsis", page - 1, page, page + 1, "ellipsis", totalPages);
-    return pages;
-  }
-
   const isLoading = loading || selectedLoading;
 
   if (!mounted) return null;
@@ -561,15 +545,19 @@ export default function Home() {
             {/* Section title */}
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-display-lg text-[22px] font-bold text-primary">
-                {mobileTab === "selected"
+                {mobileTab === "reading"
+                  ? "A ler"
+                  : mobileTab === "selected"
                   ? "Selecionados"
                   : isFiltered
                     ? `"${searchQuery}"`
                     : "Biblioteca"}
               </h2>
-              {!isLoading && (
+              {(mobileTab === "reading" || !isLoading) && (
                 <span className="text-xs text-on-surface-variant">
-                  {mobileTab === "selected"
+                  {mobileTab === "reading"
+                    ? `${reading.entries.length} ${reading.entries.length === 1 ? "livro" : "livros"}`
+                    : mobileTab === "selected"
                     ? `${visibleBooks.length} livros`
                     : isFiltered
                       ? `${total} resultados`
@@ -579,7 +567,13 @@ export default function Home() {
             </div>
 
             {/* Book grid — mobile: 3 colunas com capas pequenas */}
-            {isLoading ? (
+            {mobileTab === "reading" ? (
+              <ReadingList
+                entries={reading.entries}
+                onOpen={openReader}
+                onRemove={reading.remove}
+              />
+            ) : isLoading ? (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
                 {Array.from({ length: 12 }).map((_, i) => (
                   <div key={i} className="animate-pulse">
@@ -604,27 +598,9 @@ export default function Home() {
                   ))}
                 </div>
 
-                {/* Paginação mobile — simples: anterior/próximo */}
-                {!showSelectedOnly && totalPages > 1 && (
-                  <div className="mt-6 flex items-center justify-center gap-3">
-                    <button
-                      onClick={() => goToPage(page - 1)}
-                      disabled={page === 1}
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant disabled:opacity-30"
-                    >
-                      <ChevronLeft size={18} />
-                    </button>
-                    <span className="text-sm font-bold text-on-surface-variant">
-                      {page} / {totalPages}
-                    </span>
-                    <button
-                      onClick={() => goToPage(page + 1)}
-                      disabled={page === totalPages}
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant disabled:opacity-30"
-                    >
-                      <ChevronRight size={18} />
-                    </button>
-                  </div>
+                {/* Paginação mobile: 2 páginas antes/depois + salto direto */}
+                {!showSelectedOnly && (
+                  <Pagination variant="mobile" page={page} totalPages={totalPages} onChange={goToPage} />
                 )}
               </>
             ) : (
@@ -718,6 +694,7 @@ export default function Home() {
               if (tab !== "search") setMobileSearchOpen(false);
             }}
             selectedCount={selectedIds.size}
+            readingCount={reading.entries.length}
             onSync={syncLibrary}
             onCovers={syncCovers}
             onKobo={syncToKobo}
@@ -1009,49 +986,8 @@ export default function Home() {
                     ))}
                   </div>
 
-                  {!showSelectedOnly && totalPages > 1 && (
-                    <nav
-                      aria-label="Paginação"
-                      className="mt-12 flex flex-wrap items-center justify-between gap-4 border-t border-outline-variant pt-6"
-                    >
-                      <p className="text-xs font-bold uppercase tracking-wider text-outline">
-                        Página {page} de {totalPages}
-                      </p>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => goToPage(page - 1)}
-                          disabled={page === 1}
-                          className="flex h-9 w-9 items-center justify-center rounded border border-outline-variant text-on-surface-variant transition hover:bg-surface-container disabled:opacity-30"
-                        >
-                          <ChevronLeft size={16} />
-                        </button>
-                        {getPageNumbers().map((p, i) =>
-                          p === "ellipsis" ? (
-                            <span key={`e-${i}`} className="flex h-9 w-9 items-center justify-center text-on-surface-variant">…</span>
-                          ) : (
-                            <button
-                              key={p}
-                              onClick={() => goToPage(p)}
-                              aria-current={p === page ? "page" : undefined}
-                              className={`flex h-9 w-9 items-center justify-center rounded text-xs font-bold transition ${
-                                p === page
-                                  ? "bg-primary text-on-primary"
-                                  : "border border-outline-variant text-on-surface-variant hover:bg-surface-container"
-                              }`}
-                            >
-                              {p}
-                            </button>
-                          ),
-                        )}
-                        <button
-                          onClick={() => goToPage(page + 1)}
-                          disabled={page === totalPages}
-                          className="flex h-9 w-9 items-center justify-center rounded border border-outline-variant text-on-surface-variant transition hover:bg-surface-container disabled:opacity-30"
-                        >
-                          <ChevronRight size={16} />
-                        </button>
-                      </div>
-                    </nav>
+                  {!showSelectedOnly && (
+                    <Pagination variant="desktop" page={page} totalPages={totalPages} onChange={goToPage} />
                   )}
                 </>
               ) : showSelectedOnly ? (
