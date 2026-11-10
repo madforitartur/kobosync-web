@@ -7,12 +7,20 @@ import { ArrowLeft, BookOpen, Loader2, Maximize, Minimize, X } from "lucide-reac
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
 import { clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
+import {
+  FONT_LABELS,
+  PAGE_ANIMS,
+  SETTINGS_KEY,
+  THEMES,
+  loadSettings,
+  saveSettings,
+  type FontSize,
+  type PageAnim,
+  type Theme,
+} from "@/lib/reader-settings";
 
 type Chapter  = { id: string; title: string; html: string };
 type ReadData = { title: string; chapters: Chapter[] };
-type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
-type Theme    = "light" | "sepia" | "dark" | "paper" | "eink";
-type PageAnim = "none" | "fade" | "slide" | "curl";
 
 const DOUBLE_TAP_MS = 280;
 const SWIPE_MIN_X   = 40;   // px mínimo horizontal para contar como swipe de página
@@ -25,25 +33,6 @@ const FONT_CLASS: Record<FontSize, string> = {
   lg: "text-[19px] leading-[1.8]",
   xl: "text-[22px] leading-[1.85]",
 };
-const FONT_LABELS: Record<FontSize, string> = { xs:"XS", sm:"S", md:"M", lg:"L", xl:"XL" };
-
-const THEMES: Record<Theme, {
-  label:string; bg:string; page:string; text:string; accent:string; eink?:boolean;
-}> = {
-  light: { label:"Claro",  bg:"#e8e6e1", page:"#fdfcf8", text:"#1a1a1a", accent:"#6b6f7a" },
-  sepia: { label:"Sépia",  bg:"#d4c4a8", page:"#f5ecd9", text:"#3d2f1f", accent:"#9b7f58" },
-  paper: { label:"Papel",  bg:"#c9c5be", page:"#f7f3ea", text:"#1a1a1a", accent:"#6a6050" },
-  dark:  { label:"Noite",  bg:"#0d0d0f", page:"#18181b", text:"#e4e4e7", accent:"#71717a" },
-  eink:  { label:"E-Ink",  bg:"#b0b0b0", page:"#e8e8e8", text:"#0a0a0a", accent:"#444444", eink:true },
-};
-
-const PAGE_ANIMS: { id:PageAnim; label:string; icon:string }[] = [
-  { id:"none",  label:"Nenhuma", icon:"✕"  },
-  { id:"fade",  label:"Fade",    icon:"✦"  },
-  { id:"slide", label:"Slide",   icon:"⇄"  },
-  { id:"curl",  label:"Folha",   icon:"📄" },
-];
-
 const READER_CSS = `
 .rdr::-webkit-scrollbar { display: none; }
 
@@ -106,6 +95,8 @@ export default function ReadPage() {
   const [fontSize,  setFontSize]  = useState<FontSize>("md");
   const [theme,     setTheme]     = useState<Theme>("light");
   const [pageAnim,  setPageAnim]  = useState<PageAnim>("fade");
+  const [settingsReady, setSettingsReady] = useState(false);
+  const autoFs = useRef(false);
 
   // Estado único: só o painel (sem botões separados)
   // false = tudo oculto; true = painel visível
@@ -177,6 +168,42 @@ export default function ReadPage() {
   }, [bookId]);
 
   const fullHtml = useMemo(() => (data ? combineChapters(data.chapters) : ""), [data]);
+
+  // ── Definições de leitura: carregar ao abrir, guardar ao mudar ──
+  useEffect(() => {
+    const apply = () => {
+      const st = loadSettings();
+      setFontSize(st.fontSize);
+      setTheme(st.theme);
+      setPageAnim(st.pageAnim);
+      autoFs.current = st.autoFullscreen;
+    };
+    apply();
+    setSettingsReady(true);
+    // se mudares as definições no menu da app (outro separador), actualiza aqui
+    const onStorage = (e: StorageEvent) => { if (e.key === SETTINGS_KEY) apply(); };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  useEffect(() => {
+    if (settingsReady) saveSettings({ fontSize, theme, pageAnim });
+  }, [settingsReady, fontSize, theme, pageAnim]);
+
+  // ── "Abrir em ecrã completo": o browser só deixa depois de um toque/tecla ──
+  useEffect(() => {
+    const go = () => {
+      if (!autoFs.current) return;
+      autoFs.current = false;
+      if (!isFsOn()) tryFs().then((ok) => { if (ok) setIsFs(true); });
+    };
+    window.addEventListener("pointerup", go, { once: true });
+    window.addEventListener("keydown", go, { once: true });
+    return () => {
+      window.removeEventListener("pointerup", go);
+      window.removeEventListener("keydown", go);
+    };
+  }, []);
 
   useEffect(() => { bookRef.current = book; }, [book]);
 

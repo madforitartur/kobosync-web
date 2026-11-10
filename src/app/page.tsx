@@ -9,6 +9,7 @@ import {
   BookOpen,
   Check,
   Download,
+  Menu,
   Moon,
   RefreshCw,
   Search,
@@ -19,6 +20,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { BookCover } from "@/components/BookCover";
 import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { MobileMenu } from "@/components/MobileMenu";
 import { Pagination } from "@/components/Pagination";
 import { ReadingList } from "@/components/ReadingList";
 import { useReadingList } from "@/hooks/useReadingList";
@@ -40,25 +42,6 @@ const formatBytes = (bytes: number | null) => {
   return `${mb.toFixed(mb >= 10 ? 0 : 1)} MB`;
 };
 
-function BookCoverPlaceholder({ title }: { title: string }) {
-  const initials = title
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
-
-  return (
-    <div className="flex aspect-epub w-full items-center justify-center rounded bg-gradient-to-br from-primary to-primary-container text-on-primary">
-      <div className="flex flex-col items-center gap-2 p-4 text-center">
-        <BookOpen size={32} strokeWidth={1.4} />
-        <p className="line-clamp-3 text-xs font-bold leading-tight">
-          {initials || "?"}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function Home() {
   const isTouchDevice = useIsTouchDevice();
   const [mounted, setMounted] = useState(false);
@@ -76,6 +59,7 @@ export default function Home() {
   const reading = useReadingList();
   const [status, setStatus] = useState<Status>(null);
   const [darkMode, setDarkMode] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [authors, setAuthors] = useState<string[]>([]);
 
   const [showSelectedOnly, setShowSelectedOnly] = useState(false);
@@ -328,25 +312,31 @@ export default function Home() {
     setSyncingCovers(true);
     setStatus({ type: "info", message: "A iniciar sincronização de capas…" });
     let ok = 0;
-    let failed = 0;
+    let missing = 0;
     let total: number | null = null;
     let emptyRounds = 0;
+    const failedIds = new Set<string>(); // erros temporários desta sessão
     try {
       // Cada chamada processa um lote (~35s) e diz quantas faltam.
       // Mantém esta página aberta até terminar.
       while (true) {
-        const res  = await fetch("/api/covers/sync-all", { method: "POST" });
+        const res  = await fetch("/api/covers/sync-all", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ skip: [...failedIds] }),
+        });
         const data = await res.json();
         if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
 
-        ok     += data.success ?? 0;
-        failed += data.failed ?? 0;
-        if (total === null) total = ok + failed + (data.remaining ?? 0);
+        ok      += data.success ?? 0;
+        missing += data.missing ?? 0;
+        for (const id of (data.failedIds ?? []) as string[]) failedIds.add(id);
+        if (total === null) total = ok + missing + failedIds.size + (data.remaining ?? 0);
 
         setReloadKey((k) => k + 1); // mostra as capas à medida que chegam
         setStatus({
           type: "info",
-          message: `Capas: ${ok + failed}/${total} processadas (${ok} ok${failed ? `, ${failed} sem capa` : ""})… mantém esta página aberta.`,
+          message: `Capas: ${ok + missing + failedIds.size}/${total} processadas (${ok} ok)… mantém esta página aberta.`,
         });
 
         if (data.done || (data.remaining ?? 0) === 0) break;
@@ -354,9 +344,12 @@ export default function Home() {
         if (emptyRounds >= 3) throw new Error("O sync de capas deixou de progredir.");
       }
 
+      const parts = [`${ok} extraídas`];
+      if (missing > 0) parts.push(`${missing} sem capa no EPUB`);
+      if (failedIds.size > 0) parts.push(`${failedIds.size} com erro temporário: clica em Capas outra vez para tentar de novo`);
       setStatus({
-        type: failed > 0 ? "info" : "success",
-        message: `Capas concluídas: ${ok} extraídas${failed > 0 ? `, ${failed} livros sem capa no EPUB` : ""}.`,
+        type: failedIds.size > 0 ? "info" : "success",
+        message: `Capas concluídas: ${parts.join(" · ")}.`,
       });
     } catch (err) {
       setStatus({ type: "error", message: err instanceof Error ? err.message : "Erro nas capas" });
@@ -476,23 +469,14 @@ export default function Home() {
                   KoboSync
                 </span>
               </div>
-              <div className="flex items-center gap-1.5">
-                {deferredPrompt && !isStandalone && (
-                  <button
-                    className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary transition hover:bg-primary-container"
-                    onClick={handleInstall}
-                    aria-label="Instalar App"
-                  >
-                    <Download size={16} />
-                  </button>
-                )}
-                <button
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant"
-                  onClick={() => setDarkMode((v) => !v)}
-                >
-                  {darkMode ? <Sun size={16} /> : <Moon size={16} />}
-                </button>
-              </div>
+              <button
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant"
+                onClick={() => setMenuOpen(true)}
+                aria-label="Abrir menu"
+                aria-haspopup="dialog"
+              >
+                <Menu size={18} />
+              </button>
             </div>
 
             {/* Mobile search bar (tab search ou filtro activo) */}
@@ -591,9 +575,7 @@ export default function Home() {
                       key={book.id}
                       book={book}
                       isSelected={selectedIds.has(book.id)}
-                      onTap={() => toggleBook(book.id)}
-                      onLongPress={() => readBook(book)}
-                      onActionPress={(e) => handleBookAction(book, e)}
+                      onTap={(e) => handleBookAction(book, e)}
                     />
                   ))}
                 </div>
@@ -686,6 +668,21 @@ export default function Home() {
             )}
           </AnimatePresence>
 
+          {/* Menu hambúrguer */}
+          <MobileMenu
+            open={menuOpen}
+            onClose={() => setMenuOpen(false)}
+            darkMode={darkMode}
+            onToggleDark={() => setDarkMode((v) => !v)}
+            onSync={syncLibrary}
+            onCovers={syncCovers}
+            syncing={syncing}
+            syncingCovers={syncingCovers}
+            canInstall={!!deferredPrompt}
+            isStandalone={isStandalone}
+            onInstall={handleInstall}
+          />
+
           {/* Bottom nav */}
           <MobileBottomNav
             activeTab={mobileTab}
@@ -695,11 +692,7 @@ export default function Home() {
             }}
             selectedCount={selectedIds.size}
             readingCount={reading.entries.length}
-            onSync={syncLibrary}
-            onCovers={syncCovers}
             onKobo={syncToKobo}
-            syncing={syncing}
-            syncingCovers={syncingCovers}
           />
 
           {/* Status toast */}
@@ -941,26 +934,23 @@ export default function Home() {
                           initial={{ opacity: 0, y: 12 }}
                           animate={{ opacity: 1, y: 0 }}
                           className="cursor-pointer"
-                          onClick={() => toggleBook(book.id)}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Opções de ${cleanBookTitle(book.title)}`}
+                          onClick={(e) => handleBookAction(book, e)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setContextMenu({ book, x: r.left + r.width / 2, y: r.top + r.height / 2 });
+                            }
+                          }}
                         >
-                          {book.cover_url ? (
-                            <BookCover
-                              coverUrl={book.cover_url}
-                              title={cleanBookTitle(book.title)}
-                              isSelected={selectedIds.has(book.id)}
-                              selectionClassName="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
-                              checkSize={16}
-                            />
-                          ) : (
-                            <div className="relative">
-                              <BookCoverPlaceholder title={cleanBookTitle(book.title)} />
-                              {selectedIds.has(book.id) && (
-                                <div className="absolute right-2 top-2 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary">
-                                  <Check size={16} />
-                                </div>
-                              )}
-                            </div>
-                          )}
+                          <BookCover
+                            coverUrl={book.cover_url}
+                            title={cleanBookTitle(book.title)}
+                            isSelected={selectedIds.has(book.id)}
+                          />
                           {/* Título: altura fixa de 2 linhas; autor sempre na 3.ª */}
                           <div className="mt-3 h-[2.8rem] overflow-hidden">
                             <h3 className="line-clamp-2 font-display-lg text-[18px] font-bold leading-[1.4] text-primary">
@@ -975,13 +965,6 @@ export default function Home() {
                           </p>
                         </motion.article>
 
-                        <button
-                          onClick={(e) => handleBookAction(book, e)}
-                          aria-label="Ações do livro"
-                          className="absolute right-2 top-2 z-20 flex h-9 w-9 items-center justify-center rounded-full border border-outline-variant bg-background text-on-surface-variant opacity-0 transition group-hover:opacity-100 hover:bg-primary hover:text-on-primary"
-                        >
-                          <BookOpen size={16} />
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -1033,7 +1016,7 @@ export default function Home() {
                 className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm font-semibold text-on-surface transition hover:bg-surface-container"
               >
                 <Check size={16} />
-                {selectedIds.has(contextMenu.book.id) ? "Desselecionar" : "Selecionar"}
+                {selectedIds.has(contextMenu.book.id) ? "Remover da seleção" : "Adicionar à seleção"}
               </button>
               <button
                 onClick={() => readBook(contextMenu.book)}
@@ -1082,91 +1065,36 @@ export default function Home() {
 type MobileBookCardProps = {
   book: Book;
   isSelected: boolean;
-  onTap: () => void;
-  onLongPress: () => void;
-  onActionPress: (e: React.MouseEvent) => void;
+  /** Tocar na capa abre o menu do livro (Ler agora / Adicionar à seleção). */
+  onTap: (e: React.MouseEvent) => void;
 };
 
-function MobileBookCard({ book, isSelected, onTap, onLongPress, onActionPress }: MobileBookCardProps) {
-  const [pressTimer, setPressTimer] = useState<number | null>(null);
-  const [pressing, setPressing] = useState(false);
-
-  function handleTouchStart() {
-    setPressing(true);
-    const t = window.setTimeout(() => {
-      onLongPress();
-      setPressing(false);
-    }, 500);
-    setPressTimer(t);
-  }
-
-  function handleTouchEnd() {
-    if (pressTimer) {
-      window.clearTimeout(pressTimer);
-      setPressTimer(null);
-    }
-    setPressing(false);
-  }
-
+function MobileBookCard({ book, isSelected, onTap }: MobileBookCardProps) {
   return (
-    <div className="relative">
-      <motion.div
-        animate={{ scale: pressing ? 0.94 : 1 }}
-        transition={{ duration: 0.15 }}
-        className="cursor-pointer"
-        onClick={onTap}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        onTouchMove={handleTouchEnd}
-        onContextMenu={(e) => { e.preventDefault(); onActionPress(e); }}
-      >
-        <div className="relative">
-          {book.cover_url ? (
-            <BookCover
-              coverUrl={book.cover_url}
-              title={cleanBookTitle(book.title)}
-              isSelected={isSelected}
-              selectionClassName="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary"
-              checkSize={11}
-            />
-          ) : (
-            <div className="relative">
-              <div className="flex aspect-epub w-full items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-container text-on-primary">
-                <div className="flex flex-col items-center gap-1 p-2 text-center">
-                  <BookOpen size={20} strokeWidth={1.4} />
-                  <p className="line-clamp-2 text-[9px] font-bold leading-tight">
-                    {cleanBookTitle(book.title).slice(0, 2).toUpperCase()}
-                  </p>
-                </div>
-              </div>
-              {isSelected && (
-                <div className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-primary text-on-primary">
-                  <Check size={11} />
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        {/* Título: sempre 2 linhas (min-h garante espaço mesmo título curto) */}
-        <div className="mt-1.5 min-h-[2.2rem]">
-          <p className="line-clamp-2 text-[11px] font-bold leading-tight text-primary">
-            {cleanBookTitle(book.title)}
-          </p>
-        </div>
-        {/* Autor: sempre na 3.ª linha */}
-        <p className="mt-0.5 line-clamp-1 text-[10px] text-on-surface-variant">
-          {book.author ?? "–"}
+    <motion.div
+      whileTap={{ scale: 0.95 }}
+      transition={{ duration: 0.15 }}
+      className="cursor-pointer"
+      role="button"
+      aria-label={`Opções de ${cleanBookTitle(book.title)}`}
+      onClick={onTap}
+      onContextMenu={(e) => { e.preventDefault(); onTap(e); }}
+    >
+      <BookCover
+        coverUrl={book.cover_url}
+        title={cleanBookTitle(book.title)}
+        isSelected={isSelected}
+      />
+      {/* Título: sempre 2 linhas (min-h garante espaço mesmo título curto) */}
+      <div className="mt-1.5 min-h-[2.2rem]">
+        <p className="line-clamp-2 text-[11px] font-bold leading-tight text-primary">
+          {cleanBookTitle(book.title)}
         </p>
-      </motion.div>
-
-      {/* Botão de ação rápida */}
-      <button
-        onClick={onActionPress}
-        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full border border-outline-variant bg-background text-on-surface-variant"
-        aria-label="Mais opções"
-      >
-        <BookOpen size={11} />
-      </button>
-    </div>
+      </div>
+      {/* Autor: sempre na 3.ª linha */}
+      <p className="mt-0.5 line-clamp-1 text-[10px] text-on-surface-variant">
+        {book.author ?? "–"}
+      </p>
+    </motion.div>
   );
 }

@@ -16,7 +16,23 @@ interface ListDriveEpubsParams {
   folderId?:      string;
 }
 
+const tokenCache = new Map<string, { token: string; exp: number }>();
+
+/** Token OAuth com cache (~1h): evita pedir um token novo por cada EPUB descarregado. */
 async function getAccessToken(
+  clientEmail: string,
+  privateKey: string,
+  scope: string = "https://www.googleapis.com/auth/drive.readonly",
+): Promise<string> {
+  const key = `${clientEmail}|${scope}`;
+  const hit = tokenCache.get(key);
+  if (hit && hit.exp > Date.now() + 60_000) return hit.token;
+  const token = await requestAccessToken(clientEmail, privateKey, scope);
+  tokenCache.set(key, { token, exp: Date.now() + 55 * 60_000 });
+  return token;
+}
+
+async function requestAccessToken(
   clientEmail: string,
   privateKey: string,
   scope: string = "https://www.googleapis.com/auth/drive.readonly",
@@ -177,13 +193,37 @@ export async function listDriveEpubs(
 }
 
 /** Download completo de um ficheiro do Drive. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const isRetryable = (status: number) => status === 429 || status === 403 || status >= 500;
+
+/**
+ * Descarrega um ficheiro do Drive. Tenta de novo (com espera crescente) quando o
+ * Drive responde com limite de pedidos (429/403) ou erro temporário (5xx).
+ */
 export async function downloadFromDrive(fileId: string, token: string): Promise<ArrayBuffer> {
-  const res = await fetch(
-    `${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) throw new Error(`Drive download failed: ${res.status} ${res.statusText}`);
-  return res.arrayBuffer();
+  const MAX_ATTEMPTS = 3;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(`${DRIVE_API}/files/${fileId}?alt=media&supportsAllDrives=true`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      lastError = err; // falha de rede
+      await sleep(500 * 2 ** attempt);
+      continue;
+    }
+
+    if (res.ok) return res.arrayBuffer();
+
+    lastError = new Error(`Drive download failed: ${res.status} ${res.statusText}`);
+    if (!isRetryable(res.status)) throw lastError;
+    await sleep(500 * 2 ** attempt);
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Drive download failed");
 }
 
 /** Download parcial (primeiros `bytes`) via HTTP Range request. */

@@ -40,7 +40,9 @@ export type Book = {
   description: string | null;
   /** URL interno da capa (guardada no Firestore), ex.: /api/books/ID/cover?v=123 */
   cover_url: string | null;
-  /** true se o EPUB não tem capa extraível (evita tentar de novo em cada sync). */
+  /** true só quando o EPUB não tem imagem de capa (não vale a pena tentar de novo). */
+  cover_missing?: boolean;
+  /** @deprecated versão antiga: marcava também erros temporários; é ignorado. */
   cover_failed?: boolean;
   epub_url: string | null;
   filesize: number | null;
