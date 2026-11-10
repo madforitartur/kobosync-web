@@ -1,6 +1,6 @@
 "use client";
 
-import { BookMarked, BookOpen, Check, Download, Image, RefreshCw, Search } from "lucide-react";
+import { BookMarked, BookOpen, Check, Download, Search } from "lucide-react";
 
 type Tab = "library" | "selected" | "search" | "reading";
 
@@ -9,11 +9,7 @@ type MobileNavProps = {
   onTabChange: (tab: Tab) => void;
   selectedCount: number;
   readingCount: number;
-  onSync: () => void;
-  onCovers: () => void;
   onKobo: () => void;
-  syncing: boolean;
-  syncingCovers: boolean;
 };
 
 export function MobileBottomNav({
@@ -21,11 +17,7 @@ export function MobileBottomNav({
   onTabChange,
   selectedCount,
   readingCount,
-  onSync,
-  onCovers,
   onKobo,
-  syncing,
-  syncingCovers,
 }: MobileNavProps) {
   return (
     <nav
@@ -41,7 +33,7 @@ export function MobileBottomNav({
           style={{ color: activeTab === "library" ? "var(--color-primary)" : "var(--color-outline)" }}
         >
           <BookOpen size={21} strokeWidth={activeTab === "library" ? 2 : 1.5} />
-          <span className="text-[8px] font-bold tracking-normal uppercase">Biblioteca</span>
+          <span className="text-[9px] font-bold tracking-wider uppercase">Biblioteca</span>
         </button>
 
         {/* Leitura */}
@@ -56,7 +48,7 @@ export function MobileBottomNav({
               {readingCount > 9 ? "9+" : readingCount}
             </span>
           )}
-          <span className="text-[8px] font-bold tracking-normal uppercase">Leitura</span>
+          <span className="text-[9px] font-bold tracking-wider uppercase">Leitura</span>
         </button>
 
         {/* Pesquisa */}
@@ -66,7 +58,7 @@ export function MobileBottomNav({
           style={{ color: activeTab === "search" ? "var(--color-primary)" : "var(--color-outline)" }}
         >
           <Search size={21} strokeWidth={activeTab === "search" ? 2 : 1.5} />
-          <span className="text-[8px] font-bold tracking-normal uppercase">Pesquisar</span>
+          <span className="text-[9px] font-bold tracking-wider uppercase">Pesquisar</span>
         </button>
 
         {/* Selecionados */}
@@ -81,29 +73,7 @@ export function MobileBottomNav({
               {selectedCount > 9 ? "9+" : selectedCount}
             </span>
           )}
-          <span className="text-[8px] font-bold tracking-normal uppercase">Seleção</span>
-        </button>
-
-        {/* Sincronizar livros */}
-        <button
-          onClick={onSync}
-          disabled={syncing}
-          className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-1.5 rounded-xl transition disabled:opacity-40"
-          style={{ color: "var(--color-outline)" }}
-        >
-          <RefreshCw size={21} strokeWidth={1.5} className={syncing ? "animate-spin" : ""} />
-          <span className="text-[8px] font-bold tracking-normal uppercase">Sync</span>
-        </button>
-
-        {/* Sincronizar capas */}
-        <button
-          onClick={onCovers}
-          disabled={syncingCovers}
-          className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-1.5 rounded-xl transition disabled:opacity-40"
-          style={{ color: syncingCovers ? "var(--color-primary)" : "var(--color-outline)" }}
-        >
-          <Image size={21} strokeWidth={1.5} className={syncingCovers ? "animate-pulse" : ""} />
-          <span className="text-[8px] font-bold tracking-normal uppercase">Capas</span>
+          <span className="text-[9px] font-bold tracking-wider uppercase">Seleção</span>
         </button>
 
         {/* Kobo */}
@@ -114,7 +84,7 @@ export function MobileBottomNav({
           style={{ color: selectedCount > 0 ? "var(--color-primary)" : "var(--color-outline)" }}
         >
           <Download size={21} strokeWidth={1.5} />
-          <span className="text-[8px] font-bold tracking-normal uppercase">Kobo</span>
+          <span className="text-[9px] font-bold tracking-wider uppercase">Kobo</span>
         </button>
 
       </div>

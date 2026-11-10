@@ -1,7 +1,7 @@
 /**
  * POST /api/covers/migrate
  * Manutenção: volta a dar uma oportunidade aos livros marcados como "sem capa"
- * (cover_failed), para o próximo "Sincronizar capas" os tentar de novo.
+ * (cover_missing), para o próximo "Sincronizar capas" os tentar de novo.
  * GET devolve apenas estatísticas.
  */
 import { NextResponse } from "next/server";
@@ -12,9 +12,9 @@ export const maxDuration = 60;
 
 export async function POST() {
   const books = await getAllBooksCached(true);
-  const failed = books.filter((b) => b.cover_failed && !b.cover_url);
+  const failed = books.filter((b) => (b.cover_failed || b.cover_missing) && !b.cover_url);
 
-  await patchBooks(failed.map((b) => ({ id: b.id, cover_failed: false })));
+  await patchBooks(failed.map((b) => ({ id: b.id, cover_failed: false, cover_missing: false })));
 
   return NextResponse.json({
     fixed: failed.length,

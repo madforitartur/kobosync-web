@@ -20,18 +20,22 @@ export const maxDuration = 60;
 const CONCURRENCY = 4;
 const TIME_BUDGET_MS = 35_000; // não começa novos grupos depois disto
 
-export async function POST() {
+export async function POST(request: Request) {
   const started = Date.now();
   let success = 0;
-  let failed = 0;
+  let missing = 0; // EPUB sem imagem de capa (definitivo)
+  const failedIds: string[] = []; // erros temporários (Drive, rede): tentam-se mais tarde
   const errors: Array<{ bookId: string; title?: string; reason: string }> = [];
 
   try {
-    const pending = await listBooksWithoutCover(undefined, true);
+    // O browser envia os livros que já falharam nesta sessão, para não os repetir em ciclo
+    const body = await request.json().catch(() => ({}));
+    const skip = new Set<string>(Array.isArray(body?.skip) ? body.skip : []);
+
+    const pending = (await listBooksWithoutCover(undefined, true)).filter((b) => !skip.has(b.id));
 
     for (let i = 0; i < pending.length && Date.now() - started < TIME_BUDGET_MS; i += CONCURRENCY) {
       const chunk = pending.slice(i, i + CONCURRENCY);
-
       const patches: BookPatch[] = [];
 
       await Promise.all(
@@ -44,18 +48,16 @@ export async function POST() {
             );
 
             if (!result) {
-              patches.push({ id: book.id, cover_failed: true });
-              failed++;
-              errors.push({ bookId: book.id, title: book.title, reason: "Sem capa no EPUB" });
+              patches.push({ id: book.id, cover_missing: true });
+              missing++;
               return;
             }
 
-            patches.push({ id: book.id, cover_url: result.url, cover_failed: false });
+            patches.push({ id: book.id, cover_url: result.url, cover_missing: false, cover_failed: false });
             success++;
           } catch (err) {
-            // Marca como falhado para não ficar a repetir o mesmo livro para sempre
-            patches.push({ id: book.id, cover_failed: true });
-            failed++;
+            // Erro temporário: NÃO marca o livro, para voltar a ser tentado
+            failedIds.push(book.id);
             errors.push({ bookId: book.id, title: book.title, reason: String(err) });
           }
         }),
@@ -65,12 +67,14 @@ export async function POST() {
       await patchBooks(patches);
     }
 
-    const remaining = Math.max(0, pending.length - success - failed);
+    const remaining = Math.max(0, pending.length - success - missing - failedIds.length);
 
     return NextResponse.json({
       success,
-      failed,
-      processed: success + failed,
+      missing,
+      failed: failedIds.length,
+      failedIds,
+      processed: success + missing + failedIds.length,
       remaining,
       done: remaining === 0,
       errors: errors.slice(-5),

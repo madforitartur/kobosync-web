@@ -161,7 +161,7 @@ export async function insertNewBooks(
         isbn: null,
         description: null,
         cover_url: null,
-        cover_failed: false,
+        cover_missing: false,
         epub_url: null,
         filesize: f.size ? Number(f.size) : null,
         modified_at: f.modifiedTime ?? null,
@@ -199,7 +199,12 @@ export async function insertNewBooks(
   return fresh.length;
 }
 
-export type BookPatch = { id: string; cover_url?: string | null; cover_failed?: boolean };
+export type BookPatch = {
+  id: string;
+  cover_url?: string | null;
+  cover_missing?: boolean;
+  cover_failed?: boolean;
+};
 
 /**
  * Aplica alterações a vários livros. Agrupa por chunk e faz 1 transacção por
@@ -228,6 +233,7 @@ export async function patchBooks(patches: BookPatch[]): Promise<void> {
         if (!patch) return book;
         const next: Book = { ...book, updated_at: now };
         if (patch.cover_url !== undefined) next.cover_url = patch.cover_url;
+        if (patch.cover_missing !== undefined) next.cover_missing = patch.cover_missing;
         if (patch.cover_failed !== undefined) next.cover_failed = patch.cover_failed;
         return next;
       });
@@ -239,17 +245,17 @@ export async function patchBooks(patches: BookPatch[]): Promise<void> {
 }
 
 export async function updateBookCover(id: string, cover: { cover_url: string | null }): Promise<void> {
-  await patchBooks([{ id, cover_url: cover.cover_url, cover_failed: false }]);
+  await patchBooks([{ id, cover_url: cover.cover_url, cover_missing: false, cover_failed: false }]);
 }
 
-export async function markCoverFailed(id: string): Promise<void> {
-  await patchBooks([{ id, cover_failed: true }]);
+export async function markCoverMissing(id: string): Promise<void> {
+  await patchBooks([{ id, cover_missing: true }]);
 }
 
 /** Livros sem capa e com drive_file_id (candidatos ao sync de capas). */
 export async function listBooksWithoutCover(limit?: number, forceRefresh = false): Promise<Book[]> {
   const all = await getAllBooksCached(forceRefresh);
-  const filtered = all.filter((b) => !b.cover_url && !b.cover_failed && b.drive_file_id);
+  const filtered = all.filter((b) => !b.cover_url && !b.cover_missing && b.drive_file_id);
   return limit ? filtered.slice(0, limit) : filtered;
 }
 
