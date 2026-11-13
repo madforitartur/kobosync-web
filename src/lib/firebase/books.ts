@@ -80,29 +80,185 @@ export async function getAllBooksCached(forceRefresh = false): Promise<Book[]> {
 const stripAccents = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 const normalize = (s: string) => stripAccents(s.toLowerCase().trim());
 
-function matchesSearch(book: Book, term: string): boolean {
-  const needle = normalize(term);
-  return [book.title, book.author, book.series, book.publisher, book.isbn].some(
-    (field) => field && normalize(field).includes(needle),
-  );
+type Indexed = { haystack: string; words: string[]; title: string; author: string };
+const indexCache = new WeakMap<Book, Indexed>();
+
+function indexOf(book: Book): Indexed {
+  let idx = indexCache.get(book);
+  if (!idx) {
+    const haystack = normalize(
+      [book.title, book.author, book.series, book.publisher, book.isbn].filter(Boolean).join(" "),
+    );
+    idx = {
+      haystack,
+      words: haystack.split(/[^a-z0-9]+/).filter(Boolean),
+      title: normalize(book.title ?? ""),
+      author: normalize(book.author ?? ""),
+    };
+    indexCache.set(book, idx);
+  }
+  return idx;
+}
+
+/** Distância de edição limitada (para tolerar 1–2 erros de escrita). */
+function withinDistance(a: string, b: string, max: number): boolean {
+  if (Math.abs(a.length - b.length) > max) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      cur.push(v);
+      if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return false;
+    prev = cur;
+  }
+  return prev[b.length] <= max;
+}
+
+function tokensOf(term: string): string[] {
+  return normalize(term).split(/\s+/).filter(Boolean);
+}
+
+function matchesTokens(book: Book, tokens: string[], fuzzy: boolean): boolean {
+  const idx = indexOf(book);
+  return tokens.every((t) => {
+    if (idx.haystack.includes(t)) return true;
+    if (!fuzzy || t.length < 4) return false;
+    const max = t.length >= 7 ? 2 : 1;
+    return idx.words.some((w) => withinDistance(t, w, max));
+  });
+}
+
+function relevance(book: Book, tokens: string[]): number {
+  const idx = indexOf(book);
+  const phrase = tokens.join(" ");
+  if (idx.title === phrase) return 0;
+  if (idx.title.startsWith(phrase)) return 1;
+  if (tokens.every((t) => idx.title.includes(t))) return 2;
+  if (tokens.every((t) => idx.author.includes(t))) return 3;
+  return 4;
+}
+
+function searchBooks(all: Book[], term?: string): { books: Book[]; tokens: string[] } {
+  const tokens = term ? tokensOf(term) : [];
+  if (tokens.length === 0) return { books: all, tokens };
+  let found = all.filter((b) => matchesTokens(b, tokens, false));
+  if (found.length === 0) found = all.filter((b) => matchesTokens(b, tokens, true)); // tolera erros
+  return { books: found, tokens };
+}
+
+export type SortKey = "title" | "author" | "recent" | "series" | "size" | "relevance";
+
+export type BookQuery = {
+  q?: string;
+  sort?: SortKey;
+  author?: string;
+  series?: string;
+  language?: string;
+  /** só estes ids (ex.: coleção, "a ler") */
+  ids?: string[];
+  /** exclui estes ids (ex.: "por ler") */
+  exclude?: string[];
+  from?: number;
+  to?: number;
+};
+
+const collator = new Intl.Collator("pt", { sensitivity: "base", numeric: true });
+
+function sortBooks(books: Book[], sort: SortKey, tokens: string[]): Book[] {
+  const out = [...books];
+  switch (sort) {
+    case "relevance":
+      return out.sort(
+        (a, b) => relevance(a, tokens) - relevance(b, tokens) || collator.compare(a.title ?? "", b.title ?? ""),
+      );
+    case "author":
+      return out.sort(
+        (a, b) =>
+          collator.compare(a.author ?? "\uffff", b.author ?? "\uffff") ||
+          collator.compare(a.title ?? "", b.title ?? ""),
+      );
+    case "recent":
+      return out.sort((a, b) =>
+        (b.created_at ?? b.modified_at ?? "").localeCompare(a.created_at ?? a.modified_at ?? ""),
+      );
+    case "series":
+      return out.sort((a, b) => {
+        const sa = a.series ?? "\uffff";
+        const sb = b.series ?? "\uffff";
+        return (
+          collator.compare(sa, sb) ||
+          (a.series_index ?? 1e9) - (b.series_index ?? 1e9) ||
+          collator.compare(a.title ?? "", b.title ?? "")
+        );
+      });
+    case "size":
+      return out.sort((a, b) => (b.filesize ?? 0) - (a.filesize ?? 0));
+    default:
+      return out; // já vem por título
+  }
+}
+
+export async function queryBooks(query: BookQuery): Promise<{ books: Book[]; total: number }> {
+  let list = await getAllBooksCached();
+  if (query.ids) {
+    const wanted = new Set(query.ids);
+    list = list.filter((b) => wanted.has(b.id));
+  }
+  if (query.exclude?.length) {
+    const skip = new Set(query.exclude);
+    list = list.filter((b) => !skip.has(b.id));
+  }
+  if (query.author) list = list.filter((b) => b.author === query.author);
+  if (query.series) list = list.filter((b) => b.series === query.series);
+  if (query.language) list = list.filter((b) => (b.language ?? "").toLowerCase().startsWith(query.language!.toLowerCase()));
+
+  const { books: searched, tokens } = searchBooks(list, query.q);
+  const sort: SortKey = query.sort ?? (tokens.length ? "relevance" : "title");
+  const sorted = sortBooks(searched, sort === "relevance" && !tokens.length ? "title" : sort, tokens);
+
+  const total = sorted.length;
+  const books =
+    query.from !== undefined && query.to !== undefined ? sorted.slice(query.from, query.to + 1) : sorted;
+  return { books, total };
+}
+
+export async function listBooks(search?: string, options: ListBooksOptions = {}): Promise<Book[]> {
+  const { from, to } = options;
+  return (await queryBooks({ q: search, from, to })).books;
+}
+
+export async function countBooks(search?: string): Promise<number> {
+  return (await queryBooks({ q: search })).total;
 }
 
 export type ListBooksOptions = { from?: number; to?: number };
 
-export async function listBooks(search?: string, options: ListBooksOptions = {}): Promise<Book[]> {
-  const all = await getAllBooksCached();
-  const term = search?.trim();
-  const filtered = term ? all.filter((b) => matchesSearch(b, term)) : all;
-  if (options.from !== undefined && options.to !== undefined) {
-    return filtered.slice(options.from, options.to + 1);
+export type Group = { name: string; count: number; covers: string[] };
+
+function groupBy(books: Book[], pick: (b: Book) => string | null): Group[] {
+  const map = new Map<string, Group>();
+  for (const b of books) {
+    const name = pick(b);
+    if (!name) continue;
+    const g = map.get(name) ?? { name, count: 0, covers: [] };
+    g.count++;
+    if (b.cover_url && g.covers.length < 3) g.covers.push(b.cover_url);
+    map.set(name, g);
   }
-  return filtered;
+  return [...map.values()].sort((a, b) => collator.compare(a.name, b.name));
 }
 
-export async function countBooks(search?: string): Promise<number> {
+export async function getFacets(): Promise<{ authors: Group[]; series: Group[]; languages: Group[] }> {
   const all = await getAllBooksCached();
-  const term = search?.trim();
-  return term ? all.filter((b) => matchesSearch(b, term)).length : all.length;
+  return {
+    authors: groupBy(all, (b) => b.author),
+    series: groupBy(all, (b) => b.series),
+    languages: groupBy(all, (b) => (b.language ? b.language.split("-")[0].toLowerCase() : null)),
+  };
 }
 
 export async function listBooksByIds(ids: string[]): Promise<Book[]> {

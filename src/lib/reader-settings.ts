@@ -3,6 +3,8 @@
  * Guardadas no browser e partilhadas entre o menu da app e o leitor.
  */
 
+import { markChanged } from "./local-store";
+
 export type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type Theme = "light" | "sepia" | "dark" | "paper" | "eink";
 export type PageAnim = "none" | "fade" | "slide" | "curl";
@@ -69,5 +71,6 @@ export function saveSettings(patch: Partial<ReaderSettings>): ReaderSettings {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     window.dispatchEvent(new Event(SETTINGS_EVENT));
   } catch {}
+  markChanged("settings");
   return next;
 }

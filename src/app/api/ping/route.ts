@@ -1,8 +1,7 @@
 /**
  * GET /api/ping
- * Health-check simples ao Firestore. Ao contrário do Supabase gratuito,
- * o Firestore não "pausa" por inactividade — este endpoint fica sobretudo
- * para diagnóstico rápido e para o cron do vercel.json continuar a funcionar.
+ * Health-check simples ao Firestore (diagnóstico e cron do vercel.json).
+ * Público de propósito: só devolve uma contagem.
  */
 import { NextResponse } from "next/server";
 import { countBooks } from "@/lib/firebase/books";

@@ -1,7 +1,7 @@
 {
   "name": "KoboSync - Biblioteca EPUB",
   "short_name": "KoboSync",
-  "description": "Biblioteca EPUB com Google Drive, Supabase e Kobo",
+  "description": "Biblioteca EPUB com Google Drive, Firebase e Kobo",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a202c",

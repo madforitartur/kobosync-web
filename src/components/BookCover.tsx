@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, BookOpen } from "lucide-react";
+import { Check, BookOpen, Usb } from "lucide-react";
 
 type BookCoverProps = {
   coverUrl?: string | null;
   title: string;
   isSelected?: boolean;
+  /** 0–1: mostra barra de progresso fina (livros em leitura). */
+  progress?: number;
+  /** Já foi enviado para o Kobo. */
+  sentToKobo?: boolean;
+  /** Livro terminado. */
+  finished?: boolean;
 };
 
 const MAX_RETRIES = 2;
@@ -15,7 +21,7 @@ const MAX_RETRIES = 2;
  * Capa do livro. Quando `isSelected`, a capa fica a preto e branco, com
  * rebordo à volta e um visto — para distinguir de relance os livros já selecionados.
  */
-export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProps) {
+export function BookCover({ coverUrl, title, isSelected = false, progress, sentToKobo, finished }: BookCoverProps) {
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
 
@@ -57,6 +63,29 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
     </div>
   );
 
+  const badges = (
+    <>
+      {finished && (
+        <span className="absolute left-1.5 top-1.5 rounded bg-primary/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-on-primary">
+          Lido
+        </span>
+      )}
+      {sentToKobo && (
+        <span
+          title="Já enviado para o Kobo"
+          className="absolute bottom-1.5 left-1.5 flex h-5 w-5 items-center justify-center rounded bg-secondary/90 text-on-secondary"
+        >
+          <Usb size={11} />
+        </span>
+      )}
+      {progress !== undefined && progress > 0 && progress < 0.98 && (
+        <div className="absolute inset-x-0 bottom-0 h-1.5 bg-black/30" aria-label={`${Math.round(progress * 100)}% lido`}>
+          <div className="h-full bg-primary-fixed" style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
+      )}
+    </>
+  );
+
   if (!src || failed) {
     return (
       <div className={frame}>
@@ -70,6 +99,7 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
             {initials || title.slice(0, 2).toUpperCase()}
           </p>
         </div>
+        {badges}
         {checkBadge}
       </div>
     );
@@ -86,6 +116,7 @@ export function BookCover({ coverUrl, title, isSelected = false }: BookCoverProp
         onError={handleError}
         className={`h-full w-full object-cover transition ${isSelected ? "grayscale" : ""}`}
       />
+      {badges}
       {checkBadge}
     </div>
   );

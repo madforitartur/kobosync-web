@@ -6,6 +6,7 @@ import {
   Check,
   Download,
   Image as ImageIcon,
+  LogOut,
   Maximize,
   Moon,
   RefreshCw,
@@ -28,6 +29,8 @@ type MobileMenuProps = {
   canInstall: boolean;
   isStandalone: boolean;
   onInstall: () => void;
+  /** Só existe quando a app está protegida por PIN. */
+  onLogout?: () => void;
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -70,6 +73,7 @@ export function MobileMenu({
   canInstall,
   isStandalone,
   onInstall,
+  onLogout,
 }: MobileMenuProps) {
   const { settings, update } = useReaderSettings();
   const [isFs, setIsFs] = useState(false);
@@ -278,6 +282,12 @@ export function MobileMenu({
                     </p>
                   )}
                 </>
+              )}
+              {onLogout && (
+                <button onClick={act(onLogout)} className={`${rowClass} mt-3`}>
+                  <LogOut size={18} />
+                  Sair (bloquear com PIN)
+                </button>
               )}
             </div>
           </motion.aside>
