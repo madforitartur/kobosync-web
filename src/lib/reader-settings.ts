@@ -8,6 +8,9 @@ import { markChanged } from "./local-store";
 export type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type Theme = "light" | "sepia" | "dark" | "paper" | "eink";
 export type PageAnim = "none" | "fade" | "slide" | "curl";
+export type FontFamily = "serif" | "sans" | "dyslexic";
+export type LineSpacing = "compact" | "normal" | "loose";
+export type TextWidth = "narrow" | "normal" | "wide";
 
 export type ReaderSettings = {
   fontSize: FontSize;
@@ -15,6 +18,12 @@ export type ReaderSettings = {
   pageAnim: PageAnim;
   /** Abrir os livros em ecrã completo (ativa-se ao primeiro toque no leitor). */
   autoFullscreen: boolean;
+  fontFamily: FontFamily;
+  lineSpacing: LineSpacing;
+  /** largura da coluna de texto (no PC) e margens */
+  textWidth: TextWidth;
+  /** escurecimento do ecrã em % (0–60), para ler à noite */
+  dim: number;
 };
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -22,7 +31,28 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   theme: "light",
   pageAnim: "fade",
   autoFullscreen: false,
+  fontFamily: "serif",
+  lineSpacing: "normal",
+  textWidth: "normal",
+  dim: 0,
 };
+
+export const FONT_FAMILIES: { id: FontFamily; label: string; css: string }[] = [
+  { id: "serif", label: "Serifa", css: "'Libre Caslon Text', Georgia, 'Times New Roman', serif" },
+  { id: "sans", label: "Sem serifa", css: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif" },
+  { id: "dyslexic", label: "Dislexia", css: "'OpenDyslexic', 'Comic Sans MS', sans-serif" },
+];
+export const LINE_SPACING: Record<LineSpacing, { label: string; factor: number }> = {
+  compact: { label: "Compacto", factor: 1.5 },
+  normal: { label: "Normal", factor: 1.75 },
+  loose: { label: "Largo", factor: 2.0 },
+};
+export const TEXT_WIDTH: Record<TextWidth, { label: string; ch: number; pad: string }> = {
+  narrow: { label: "Estreita", ch: 52, pad: "clamp(1.5rem, 8vw, 4rem)" },
+  normal: { label: "Normal", ch: 65, pad: "clamp(1.25rem, 5vw, 3rem)" },
+  wide: { label: "Larga", ch: 82, pad: "clamp(0.75rem, 3vw, 2rem)" },
+};
+export const FONT_PX: Record<FontSize, number> = { xs: 13, sm: 15, md: 17, lg: 19, xl: 22 };
 
 export const SETTINGS_KEY = "kobosync:reader-settings";
 export const SETTINGS_EVENT = "kobosync:reader-settings-changed";
@@ -59,6 +89,10 @@ export function loadSettings(): ReaderSettings {
       theme: isOneOf(s.theme, Object.keys(THEMES) as Theme[]) ? s.theme : DEFAULT_SETTINGS.theme,
       pageAnim: isOneOf(s.pageAnim, PAGE_ANIMS.map((a) => a.id)) ? s.pageAnim : DEFAULT_SETTINGS.pageAnim,
       autoFullscreen: s.autoFullscreen === true,
+      fontFamily: isOneOf(s.fontFamily, FONT_FAMILIES.map((f) => f.id)) ? s.fontFamily : DEFAULT_SETTINGS.fontFamily,
+      lineSpacing: isOneOf(s.lineSpacing, Object.keys(LINE_SPACING) as LineSpacing[]) ? s.lineSpacing : DEFAULT_SETTINGS.lineSpacing,
+      textWidth: isOneOf(s.textWidth, Object.keys(TEXT_WIDTH) as TextWidth[]) ? s.textWidth : DEFAULT_SETTINGS.textWidth,
+      dim: typeof s.dim === "number" ? Math.min(60, Math.max(0, Math.round(s.dim))) : 0,
     };
   } catch {
     return DEFAULT_SETTINGS;

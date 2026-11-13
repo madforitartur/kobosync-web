@@ -106,13 +106,14 @@ export function combineChapters(
   chapters: Array<{ title: string; html: string }>,
 ): string {
   return chapters
-    .map((c) => {
+    .map((c, i) => {
       const html = c.html.trim();
       const hasBlockTag = /^<(p|h[1-6]|div|blockquote|pre|ul|ol|table|figure|section|article)/i.test(html);
       const body = hasBlockTag ? html : `<p>${html}</p>`;
       const hasTitle = /<h[1-6][^>]*>.*?<\/h[1-6]>/i.test(html);
       const titleHtml = hasTitle ? "" : `<h1>${escapeHtml(c.title)}</h1>`;
-      return titleHtml + body;
+      // <section> com id: permite o índice de capítulos e saltar para cada um
+      return `<section data-ch="${i}" id="kb-ch-${i}">${titleHtml}${body}</section>`;
     })
     .join("\n");
 }
