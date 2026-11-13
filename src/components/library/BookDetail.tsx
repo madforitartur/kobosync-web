@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Check, CheckCheck, Download, FolderPlus, RotateCcw } from "lucide-react";
+import { BookOpen, Check, CheckCheck, CloudDownload, CloudOff, Download, FolderPlus, RotateCcw } from "lucide-react";
 import { BookCover } from "@/components/BookCover";
 import { Modal } from "./Modal";
 import { cleanBookTitle } from "@/lib/book-title";
@@ -15,6 +15,9 @@ type Props = {
   status: ReadStatus;
   progress?: number;
   sentToKobo: boolean;
+  offlineSaved: boolean;
+  offlineSupported: boolean;
+  onToggleOffline: (b: Book) => void;
   collectionNames: string[];
   onClose: () => void;
   onRead: (b: Book) => void;
@@ -27,7 +30,7 @@ type Props = {
 
 const fmtSize = (n: number | null) => (n ? `${(n / 1024 / 1024).toFixed(n > 10 * 1024 * 1024 ? 0 : 1)} MB` : null);
 
-export function BookDetail({ book, touch, selected, status, progress, sentToKobo, collectionNames, onClose, onRead, onToggleSelect, onCollections, onToggleFinished, onFilterAuthor, onFilterSeries }: Props) {
+export function BookDetail({ book, touch, selected, status, progress, sentToKobo, offlineSaved, offlineSupported, onToggleOffline, collectionNames, onClose, onRead, onToggleSelect, onCollections, onToggleFinished, onFilterAuthor, onFilterSeries }: Props) {
   const rows: Array<[string, React.ReactNode]> = book
     ? [
         ["Autor", book.author ? <button className="text-left font-semibold text-primary underline-offset-2 hover:underline" onClick={() => onFilterAuthor(book.author!)}>{book.author}</button> : null],
@@ -72,6 +75,12 @@ export function BookDetail({ book, touch, selected, status, progress, sentToKobo
               {status === "finished" ? <RotateCcw size={16} /> : <CheckCheck size={16} />}
               {status === "finished" ? "Por ler" : "Marcar lido"}
             </button>
+            {offlineSupported && (
+              <button onClick={() => onToggleOffline(book)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl border border-outline-variant px-3 py-2.5 text-sm font-bold">
+                {offlineSaved ? <CloudOff size={16} /> : <CloudDownload size={16} />}
+                {offlineSaved ? "Disponível offline · remover" : "Guardar para ler offline"}
+              </button>
+            )}
             <a href={`/api/books/${book.id}/download`} download className="flex items-center justify-center gap-2 rounded-xl border border-outline-variant px-3 py-2.5 text-sm font-bold">
               <Download size={16} /> EPUB
             </a>

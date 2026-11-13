@@ -15,6 +15,7 @@ import { useProgressMap } from "@/hooks/useProgressMap";
 import { useBooksQuery } from "@/hooks/useBooksQuery";
 import { useFacets } from "@/hooks/useFacets";
 import { useSelectedBooks } from "@/hooks/useSelectedBooks";
+import { useOffline } from "@/hooks/useOffline";
 import { useSyncActions, type Status } from "@/hooks/useSyncActions";
 import { cleanBookTitle } from "@/lib/book-title";
 import { FINISHED_RATIO, setFinished } from "@/lib/reading-progress";
@@ -79,6 +80,7 @@ export function LibraryApp() {
   const facets = useFacets(reloadKey);
   const [koboSent, setKoboSent] = useStored<Record<string, number>>("kobosync:kobo-sent", {}, "koboSent");
   const sync = useSyncActions(setStatus, bump);
+  const offline = useOffline();
 
   // ── Consulta ──────────────────────────────────────────────────────────────
   const activeCollection = filters.collectionId ? collections.collections.find((c) => c.id === filters.collectionId) : undefined;
@@ -99,6 +101,9 @@ export function LibraryApp() {
   // ── Arranque ──────────────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
+    // Atalhos da app instalada: /?view=reading|series|authors|collections|selected
+    const wanted = new URLSearchParams(window.location.search).get("view");
+    if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
     const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
     window.addEventListener("beforeinstallprompt", onPrompt);
     fetch("/api/auth/status").then((r) => r.json()).then((d) => setIsProtected(!!d.protected)).catch(() => {});
@@ -136,6 +141,18 @@ export function LibraryApp() {
       return;
     }
     openReader(book.id);
+  }
+
+  async function toggleOffline(book: Book) {
+    setBookMenu(null);
+    const was = offline.saved.has(book.id);
+    setStatus({ type: "info", message: was ? "A remover do offline…" : "A guardar para ler offline…" });
+    try {
+      await offline.toggle(book.id);
+      setStatus({ type: "success", message: was ? "Removido do offline." : `“${cleanBookTitle(book.title)}” disponível sem ligação.` });
+    } catch (e) {
+      setStatus({ type: "error", message: e instanceof Error ? e.message : "Erro ao guardar offline." });
+    }
   }
 
   function toggleFinished(book: Book) {
@@ -380,6 +397,8 @@ export function LibraryApp() {
         state={bookMenu} touch={touch} onClose={() => setBookMenu(null)}
         selected={bookMenu ? selection.ids.has(bookMenu.book.id) : false}
         status={bookMenu ? progress.statusOf(bookMenu.book.id) : "unread"}
+        offlineSaved={bookMenu ? offline.saved.has(bookMenu.book.id) : false}
+        offlineSupported={offline.supported} onToggleOffline={toggleOffline}
         inCollectionName={activeCollection?.name}
         onRead={readBook}
         onToggleSelect={(b) => { selection.toggle(b.id); setBookMenu(null); }}
@@ -394,6 +413,8 @@ export function LibraryApp() {
         status={detail ? progress.statusOf(detail.id) : "unread"}
         progress={detail ? progress.map[detail.id] : undefined}
         sentToKobo={detail ? !!koboSent[detail.id] : false}
+        offlineSaved={detail ? offline.saved.has(detail.id) : false}
+        offlineSupported={offline.supported} onToggleOffline={toggleOffline}
         collectionNames={detail ? collectionNamesOf(detail.id) : []}
         onRead={readBook} onToggleSelect={(b) => selection.toggle(b.id)}
         onCollections={(b) => setPickerIds([b.id])} onToggleFinished={toggleFinished}

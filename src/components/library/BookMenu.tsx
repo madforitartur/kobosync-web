@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen, Check, FolderPlus, Info, X, CheckCheck, RotateCcw, FolderMinus } from "lucide-react";
+import { BookOpen, Check, FolderPlus, Info, X, CheckCheck, RotateCcw, FolderMinus, CloudOff, CloudDownload } from "lucide-react";
 import { BookCover } from "@/components/BookCover";
 import { cleanBookTitle } from "@/lib/book-title";
 import type { Book } from "@/types/library";
@@ -14,6 +14,9 @@ type Props = {
   touch: boolean;
   selected: boolean;
   status: ReadStatus;
+  offlineSaved: boolean;
+  offlineSupported: boolean;
+  onToggleOffline: (b: Book) => void;
   /** quando a vista atual é uma coleção */
   inCollectionName?: string | null;
   onClose: () => void;
@@ -25,7 +28,7 @@ type Props = {
   onRemoveFromCollection?: (b: Book) => void;
 };
 
-export function BookMenu({ state, touch, selected, status, inCollectionName, onClose, onRead, onToggleSelect, onDetails, onCollections, onToggleFinished, onRemoveFromCollection }: Props) {
+export function BookMenu({ state, touch, selected, status, offlineSaved, offlineSupported, onToggleOffline, inCollectionName, onClose, onRead, onToggleSelect, onDetails, onCollections, onToggleFinished, onRemoveFromCollection }: Props) {
   const book = state?.book;
   const readLabel = status === "reading" ? "Continuar a ler" : "Ler agora";
 
@@ -46,6 +49,12 @@ export function BookMenu({ state, touch, selected, status, inCollectionName, onC
       {inCollectionName && onRemoveFromCollection && (
         <button onClick={() => onRemoveFromCollection(book)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
           <FolderMinus size={18} /> Tirar de “{inCollectionName}”
+        </button>
+      )}
+      {offlineSupported && (
+        <button onClick={() => onToggleOffline(book)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
+          {offlineSaved ? <CloudOff size={18} /> : <CloudDownload size={18} />}
+          {offlineSaved ? "Remover do offline" : "Guardar para ler offline"}
         </button>
       )}
       <button onClick={() => onToggleFinished(book)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container-low">

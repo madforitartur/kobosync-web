@@ -36,11 +36,11 @@ export function Toolbar({ touch, sort, onSort, filters, onFilters, onOpenFilters
 
   return (
     <div className="mb-4 space-y-3">
-      <div className="flex items-center gap-2 overflow-x-auto pb-0.5 scrollbar-none">
-        <div role="group" aria-label="Estado de leitura" className="flex shrink-0 rounded-full border border-outline-variant p-0.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="Estado de leitura" className="flex w-full shrink-0 rounded-full border border-outline-variant p-0.5 sm:w-auto">
           {STATUS_OPTIONS.map((o) => (
             <button key={o.id} onClick={() => onFilters({ ...filters, status: o.id })} aria-pressed={filters.status === o.id}
-              className={`rounded-full px-3 py-1 text-xs font-bold ${filters.status === o.id ? "bg-primary text-on-primary" : "text-on-surface-variant"}`}>
+              className={`flex-1 rounded-full px-3 py-1 text-xs font-bold sm:flex-none ${filters.status === o.id ? "bg-primary text-on-primary" : "text-on-surface-variant"}`}>
               {o.label}
             </button>
           ))}
@@ -68,8 +68,8 @@ export function Toolbar({ touch, sort, onSort, filters, onFilters, onOpenFilters
             {viewMode === "grid" ? <List size={15} /> : <LayoutGrid size={15} />}
           </button>
           <button onClick={onToggleSelectMode} aria-pressed={selectMode} aria-label="Modo de seleção"
-            className={`flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-bold ${selectMode ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant"}`}>
-            <CheckSquare size={14} /> Selecionar
+            className={`flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-bold sm:px-3 ${selectMode ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant"}`}>
+            <CheckSquare size={14} /> <span className="hidden md:inline">Selecionar</span>
           </button>
         </div>
       </div>

@@ -20,11 +20,11 @@ export function SelectionBar({ count, pageCount, allOnPage, onSelectPage, onSele
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-surface-container-low px-3 py-2.5" role="toolbar" aria-label="Ações da seleção">
       <span className="mr-1 text-sm font-bold text-primary" aria-live="polite">{count} {count === 1 ? "selecionado" : "selecionados"}</span>
       <button onClick={onSelectPage} className="flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-bold">
-        <CheckCheck size={14} /> {allOnPage ? "Desmarcar página" : `Página (${pageCount})`}
+        <CheckCheck size={14} /> {allOnPage ? "Desmarcar" : `Página (${pageCount})`}
       </button>
       {onSelectAllResults && totalResults !== undefined && totalResults > pageCount && (
         <button onClick={onSelectAllResults} className="rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-bold">
-          Todos os {totalResults} resultados
+          Todos ({totalResults})
         </button>
       )}
       <span className="flex-1" />

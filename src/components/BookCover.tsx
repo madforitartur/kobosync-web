@@ -107,7 +107,7 @@ export function BookCover({ coverUrl, title, isSelected = false, progress, sentT
 
   return (
     <div className={frame}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
+      { }
       <img
         key={src}
         src={src}

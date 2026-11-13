@@ -7,7 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint src tests",
     "test": "playwright test",
     "typecheck": "tsc --noEmit"
   },
@@ -34,6 +34,8 @@
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.2.3",
     "autoprefixer": "^10.5.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.7",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3"

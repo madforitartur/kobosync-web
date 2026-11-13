@@ -94,3 +94,33 @@ quotas gratuitas continuam a aplicar-se; só pagas o que as exceder).
 
 A coleção antiga `books` (1 documento por livro, da primeira versão) já não é
 usada e pode ser apagada na consola do Firebase.
+
+---
+
+## Proteção por PIN (recomendado)
+
+Sem isto, qualquer pessoa com o link pode sincronizar o Drive e gastar a quota do Firestore.
+
+No Vercel → *Settings → Environment Variables* acrescenta (sem aspas):
+
+| Variável | Valor |
+|---|---|
+| `APP_PIN` | o PIN que queres usar (ex.: 6 ou mais dígitos) |
+| `AUTH_SECRET` | *(opcional)* texto aleatório longo, para reforçar o cookie de sessão |
+
+Faz *Redeploy*. A app passa a pedir o PIN (cookie válido 90 dias) e o menu ganha o botão **Sair**.
+Se `APP_PIN` não existir, a app continua aberta como antes. Para mudar de PIN basta alterá-lo e voltar a fazer deploy (todas as sessões terminam).
+
+## Dados pessoais sincronizados entre dispositivos
+
+Posição de leitura, lista "A ler", marcadores, destaques, coleções, seleção, livros enviados para o Kobo e
+definições de leitura ficam em `userdata/state` no Firestore (1 leitura / 1 escrita por sincronização).
+Não é preciso configurar nada: usa as mesmas credenciais do Firebase.
+
+## Testes
+
+```bash
+npm run typecheck   # TypeScript
+npm run lint        # ESLint
+npm test            # Playwright (usa uma API simulada; não precisa de Firebase)
+```

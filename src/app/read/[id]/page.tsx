@@ -94,6 +94,7 @@ export default function ReadPage() {
   const [selBar, setSelBar] = useState<{ x: number; y: number; start: number; end: number; text: string } | null>(null);
   const [hlPop, setHlPop] = useState<{ id: string; x: number; y: number } | null>(null);
   const [totalWords, setTotalWords] = useState(0);
+  const [pageFrac, setPageFrac] = useState(0.02); // fração do livro que cabe num ecrã
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -251,6 +252,7 @@ export default function ReadPage() {
     const onScroll = () => {
       const max = el.scrollHeight - el.clientHeight;
       if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
+      if (el.scrollHeight > 0) setPageFrac(el.clientHeight / el.scrollHeight);
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => setChapterIdx(currentChapterFromDom()));
       if (skipSave.current) { skipSave.current = false; return; }
@@ -351,17 +353,13 @@ export default function ReadPage() {
   }, [scrollToY]);
 
   // ── Marcadores ──
-  const pageRatio = () => {
-    const el = scrollRef.current;
-    return el && el.scrollHeight > 0 ? el.clientHeight / el.scrollHeight : 0.02;
-  };
   const currentRatio = () => {
     const el = scrollRef.current;
     if (!el) return 0;
     const max = el.scrollHeight - el.clientHeight;
     return max > 0 ? el.scrollTop / max : 0;
   };
-  const bookmarkHere = bookmarks.find((b) => Math.abs(b.ratio - progress / 100) < Math.max(0.004, pageRatio() * 0.8));
+  const bookmarkHere = bookmarks.find((b) => Math.abs(b.ratio - progress / 100) < Math.max(0.004, pageFrac * 0.8));
 
   function toggleBookmark() {
     if (bookmarkHere) {
@@ -373,6 +371,8 @@ export default function ReadPage() {
     const mark: Bookmark = { id: newId(), ratio, label: ch, createdAt: Date.now() };
     setBookmarksAll((cur) => ({ ...cur, [bookId]: [...(cur[bookId] ?? []), mark] }));
   }
+  const toggleBookmarkRef = useRef(toggleBookmark);
+  useEffect(() => { toggleBookmarkRef.current = toggleBookmark; }); // o atalho de teclado usa sempre a versão mais recente
   const goToBookmark = (b: Bookmark) => {
     const el = scrollRef.current;
     if (el) scrollToY(b.ratio * (el.scrollHeight - el.clientHeight));
@@ -471,7 +471,7 @@ export default function ReadPage() {
         case "End": e.preventDefault(); scrollToY(1e9); return;
         case "f": case "F": toggleFs(); return;
         case "t": case "T": e.preventDefault(); showPanel && tab === "toc" ? setShowPanel(false) : openPanel("toc"); return;
-        case "b": case "B": toggleBookmark(); return;
+        case "b": case "B": toggleBookmarkRef.current(); return;
         case "h": case "H": openPanel("highlights"); return;
         case "/": case "s": case "S": e.preventDefault(); openPanel("search"); return;
         case "a": case "A": openPanel("aa"); return;
@@ -479,8 +479,8 @@ export default function ReadPage() {
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saveAndClose, navigate, toggleFs, showPanel, tab, hlPop, selBar, openPanel, scrollToY, bookmarkHere]);
+     
+  }, [saveAndClose, navigate, toggleFs, showPanel, tab, hlPop, selBar, openPanel, scrollToY]);
 
   // ── Toque ──
   const onTouchStart = useCallback((e: React.TouchEvent) => {

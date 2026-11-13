@@ -51,7 +51,7 @@ export function GroupList({ kind, groups, compact, onOpen }: Props) {
                   <div className="mb-2.5 flex h-24 items-center justify-center gap-[-8px] overflow-hidden rounded-lg bg-surface-container">
                     {g.covers.length > 0 ? (
                       g.covers.map((c, i) => (
-                        // eslint-disable-next-line @next/next/no-img-element
+                         
                         <img key={c} src={c} alt="" loading="lazy" className="h-24 w-16 object-cover shadow-md" style={{ marginLeft: i ? -18 : 0, zIndex: 3 - i }} />
                       ))
                     ) : (
