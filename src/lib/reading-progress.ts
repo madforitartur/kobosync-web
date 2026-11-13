@@ -9,6 +9,8 @@
  * Fica no dispositivo/browser onde se lê (não sincroniza entre aparelhos).
  */
 
+import { markChanged } from "./local-store";
+
 const POS_PREFIX = "kobosync:reading:";
 const LIST_KEY = "kobosync:reading-list";
 const MAX_LIST = 50;
@@ -61,6 +63,8 @@ function notify() {
   try {
     window.dispatchEvent(new Event(READING_EVENT));
   } catch {}
+  markChanged("positions");
+  markChanged("readingList");
 }
 
 export function loadPosition(bookId: string): SavedPosition | null {
@@ -127,4 +131,33 @@ export function clearPosition(bookId: string) {
     localStorage.removeItem(POS_PREFIX + bookId);
   } catch {}
   removeFromReadingList(bookId);
+}
+
+/** Progresso (0–1) de todos os livros com posição guardada (para filtros e etiquetas). */
+export function getAllProgress(): Record<string, number> {
+  const out: Record<string, number> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith(POS_PREFIX)) continue;
+      const v = readJSON<Partial<SavedPosition>>(k);
+      if (v && typeof v.ratio === "number") out[k.slice(POS_PREFIX.length)] = v.ratio;
+    }
+  } catch {}
+  return out;
+}
+
+/** Marca o livro como lido (100%) ou por ler (apaga a posição). */
+export function setFinished(bookId: string, meta: BookMeta | null, finished: boolean) {
+  if (!finished) {
+    clearPosition(bookId);
+    return;
+  }
+  const now = Date.now();
+  writeJSON(POS_PREFIX + bookId, { scrollTop: 0, ratio: 1, timestamp: now });
+  if (meta) {
+    const list = readList().filter((e) => e.id !== bookId);
+    writeJSON(LIST_KEY, [{ id: bookId, ...meta, ratio: 1, updatedAt: now, finished: true }, ...list].slice(0, MAX_LIST));
+  }
+  notify();
 }

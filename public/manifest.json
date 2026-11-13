@@ -1,7 +1,7 @@
 {
   "name": "KoboSync - Biblioteca EPUB",
   "short_name": "KoboSync",
-  "description": "Biblioteca EPUB com Google Drive, Supabase e Kobo",
+  "description": "Biblioteca EPUB com Google Drive, Firebase e Kobo",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a202c",
@@ -12,20 +12,70 @@
       "src": "/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/apple-touch-icon.png",
-      "sizes": "180x180",
-      "type": "image/png"
+      "src": "/icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
-  "categories": ["books", "education", "entertainment"],
-  "lang": "pt-PT"
+  "categories": [
+    "books",
+    "education",
+    "entertainment"
+  ],
+  "lang": "pt-PT",
+  "id": "/",
+  "screenshots": [
+    {
+      "src": "/icons/screenshot-desktop.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Biblioteca no computador"
+    },
+    {
+      "src": "/icons/screenshot-mobile.png",
+      "sizes": "780x1688",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Biblioteca no telemóvel"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Continuar a ler",
+      "short_name": "A ler",
+      "url": "/?view=reading",
+      "icons": [
+        {
+          "src": "/icons/icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Séries",
+      "url": "/?view=series"
+    },
+    {
+      "name": "Seleção para o Kobo",
+      "short_name": "Seleção",
+      "url": "/?view=selected"
+    }
+  ]
 }

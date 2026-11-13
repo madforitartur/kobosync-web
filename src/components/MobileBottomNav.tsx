@@ -1,8 +1,8 @@
 "use client";
 
-import { BookMarked, BookOpen, Check, Download, Search } from "lucide-react";
+import { BookMarked, BookOpen, Check, Compass, Usb } from "lucide-react";
 
-type Tab = "library" | "selected" | "search" | "reading";
+export type Tab = "library" | "selected" | "explore" | "reading";
 
 type MobileNavProps = {
   activeTab: Tab;
@@ -51,14 +51,14 @@ export function MobileBottomNav({
           <span className="text-[9px] font-bold tracking-wider uppercase">Leitura</span>
         </button>
 
-        {/* Pesquisa */}
+        {/* Explorar: séries, autores e coleções */}
         <button
-          onClick={() => onTabChange("search")}
+          onClick={() => onTabChange("explore")}
           className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-1.5 rounded-xl transition"
-          style={{ color: activeTab === "search" ? "var(--color-primary)" : "var(--color-outline)" }}
+          style={{ color: activeTab === "explore" ? "var(--color-primary)" : "var(--color-outline)" }}
         >
-          <Search size={21} strokeWidth={activeTab === "search" ? 2 : 1.5} />
-          <span className="text-[9px] font-bold tracking-wider uppercase">Pesquisar</span>
+          <Compass size={21} strokeWidth={activeTab === "explore" ? 2 : 1.5} />
+          <span className="text-[9px] font-bold tracking-wider uppercase">Explorar</span>
         </button>
 
         {/* Selecionados */}
@@ -83,7 +83,7 @@ export function MobileBottomNav({
           className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-1.5 rounded-xl transition disabled:opacity-30"
           style={{ color: selectedCount > 0 ? "var(--color-primary)" : "var(--color-outline)" }}
         >
-          <Download size={21} strokeWidth={1.5} />
+          <Usb size={21} strokeWidth={1.5} />
           <span className="text-[9px] font-bold tracking-wider uppercase">Kobo</span>
         </button>
 

@@ -19,7 +19,7 @@ export async function GET(
       headers: {
         "Content-Type": cover.mime,
         "Content-Length": String(cover.data.length),
-        "Cache-Control": "public, max-age=31536000, s-maxage=31536000, immutable",
+        "Cache-Control": "private, max-age=31536000, immutable",
       },
     });
   } catch (error) {
