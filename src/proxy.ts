@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AUTH_COOKIE, getPin, isValidToken } from "@/lib/auth";
+import { ADMIN_ID, AUTH_COOKIE, USER_HEADER, getPin, verifySessionToken } from "@/lib/auth";
 
 const PUBLIC_PREFIXES = [
   "/login",
@@ -21,17 +21,23 @@ const PUBLIC_FILES = new Set([
   "/apple-touch-icon.png",
 ]);
 
+/** Reencaminha o pedido com o id do utilizador (sempre definido aqui; nunca vindo do cliente). */
+function pass(request: NextRequest, uid: string | null) {
+  const headers = new Headers(request.headers);
+  headers.delete(USER_HEADER);
+  if (uid) headers.set(USER_HEADER, uid);
+  return NextResponse.next({ request: { headers } });
+}
+
 export async function proxy(request: NextRequest) {
-  if (!getPin()) return NextResponse.next();
+  if (!getPin()) return pass(request, ADMIN_ID); // sem APP_PIN: app aberta, um só utilizador
 
   const { pathname } = request.nextUrl;
+  const uid = await verifySessionToken(request.cookies.get(AUTH_COOKIE)?.value);
   if (PUBLIC_FILES.has(pathname) || PUBLIC_PREFIXES.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
+    return pass(request, uid);
   }
-
-  if (await isValidToken(request.cookies.get(AUTH_COOKIE)?.value)) {
-    return NextResponse.next();
-  }
+  if (uid) return pass(request, uid);
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });

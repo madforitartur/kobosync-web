@@ -48,7 +48,7 @@ const hasBookFile = (b: Book) => !!(b.epub_url || b.drive_file_id);
 export function LibraryApp() {
   const touch = useIsTouchDevice();
   const [mounted, setMounted] = useState(false);
-  const [darkMode, setDarkMode] = useStored<boolean>("kobosync:dark", false);
+  const [darkMode, setDarkMode] = useStored<boolean>("kobosync:dark", false, "darkMode");
   const [status, setStatus] = useState<Status>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const bump = useCallback(() => setReloadKey((k) => k + 1), []);
@@ -59,8 +59,8 @@ export function LibraryApp() {
   const [sort, setSort] = useState<SortKey>("title");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
-  const [viewMode, setViewMode] = useStored<ViewMode>("kobosync:view-mode", "grid");
-  const [density, setDensity] = useStored<number>("kobosync:density", 1);
+  const [viewMode, setViewMode] = useStored<ViewMode>("kobosync:view-mode", "grid", "viewMode");
+  const [density, setDensity] = useStored<number>("kobosync:density", 1, "density");
   const [selectMode, setSelectMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -71,6 +71,7 @@ export function LibraryApp() {
   const [koboOpen, setKoboOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isProtected, setIsProtected] = useState(false);
+  const [userName, setUserName] = useState<string | null>(null);
   const [exploreTab, setExploreTab] = useState<"series" | "authors" | "collections">("series");
   const searchRef = useRef<HTMLInputElement>(null);
   const lastIndex = useRef<number | null>(null);
@@ -109,7 +110,7 @@ export function LibraryApp() {
     if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
     const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    fetch("/api/auth/status").then((r) => r.json()).then((d) => setIsProtected(!!d.protected)).catch(() => {});
+    fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); }).catch(() => {});
     import("@/lib/cloud-sync").then((m) => m.startCloudSync());
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
@@ -122,8 +123,8 @@ export function LibraryApp() {
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.href = "/login";
+    const m = await import("@/lib/user-session");
+    await m.logoutAndWipe();
   }
 
   // ── Ações sobre livros ────────────────────────────────────────────────────
@@ -511,7 +512,7 @@ export function LibraryApp() {
             open={menuOpen} onClose={() => setMenuOpen(false)} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
             onSync={syncLibraryAndCovers} onCovers={covers.start} syncing={sync.syncing} syncingCovers={covers.state.running}
             canInstall={!!deferredPrompt} isStandalone={isStandalone} onInstall={handleInstall}
-            onLogout={isProtected ? logout : undefined}
+            onLogout={isProtected ? logout : undefined} userName={userName}
           />
           <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} />
           {overlays}
@@ -529,7 +530,7 @@ export function LibraryApp() {
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}
           collections={collections.collections} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
           onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls}
-          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined}
+          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined} userName={userName}
         />
         <div className="min-w-0 flex-1">
           <header className="sticky top-0 z-40 border-b border-outline-variant bg-background/90 backdrop-blur-xl">
