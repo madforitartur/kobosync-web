@@ -5,6 +5,10 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth/",
   "/api/ping", // usado pelo cron; só devolve uma contagem
+  "/receber", // página aberta no browser do Kobo (sem PIN)
+  "/api/receber/new",
+  "/api/receber/poll",
+  "/api/receber/dl", // protegido por código + segredo da sessão
   "/_next/",
   "/icons/",
 ];
