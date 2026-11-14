@@ -9,6 +9,7 @@ import { combineChapters } from "@/lib/pagination";
 import { FINISHED_RATIO, clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
 import { FONT_FAMILIES, FONT_PX, LINE_SPACING, TEXT_WIDTH, THEMES, type ReaderSettings } from "@/lib/reader-settings";
 import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@/lib/reader-annotations";
+import { keepAwake } from "@/lib/keep-awake";
 import { PageCurl, snapshotPage } from "@/lib/page-curl";
 import { anchorOffset, measureLines, pageTarget, scrollTopForOffset, type Line } from "@/lib/reader-pages";
 import { applyHighlights, bookText, findAll, flashRange, fold, offsetsFromRange, rangeFromOffsets, type Folded } from "@/lib/reader-dom";
@@ -143,6 +144,9 @@ export default function ReadPage() {
     document.head.appendChild(s);
     return () => { document.getElementById("rdr-css")?.remove(); };
   }, []);
+
+  // Não deixa o ecrã apagar nem escurecer enquanto se lê
+  useEffect(() => keepAwake(), []);
 
   // Sincroniza posição/anotações com a nuvem também a partir do leitor
   useEffect(() => { import("@/lib/cloud-sync").then((m) => m.startCloudSync()); }, []);
