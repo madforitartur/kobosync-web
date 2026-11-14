@@ -9,6 +9,7 @@ import { combineChapters } from "@/lib/pagination";
 import { FINISHED_RATIO, clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
 import { FONT_FAMILIES, FONT_PX, LINE_SPACING, TEXT_WIDTH, THEMES, type ReaderSettings } from "@/lib/reader-settings";
 import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@/lib/reader-annotations";
+import { anchorOffset, measureLines, pageTarget, scrollTopForOffset, type Line } from "@/lib/reader-pages";
 import { applyHighlights, bookText, findAll, flashRange, fold, offsetsFromRange, rangeFromOffsets, type Folded } from "@/lib/reader-dom";
 import { useReaderSettings } from "@/hooks/useReaderSettings";
 import { useIsTouchDevice } from "@/hooks/useDeviceType";
@@ -21,7 +22,6 @@ type ReadData = { title: string; chapters: Chapter[] };
 const DOUBLE_TAP_MS = 280;
 const SWIPE_MIN_X = 40;
 const EDGE_PX = 24; // gestos que começam na borda do ecrã ficam para o sistema (ex.: "voltar" do iOS)
-const CONTEXT_PX = 32;
 const WORDS_PER_MIN = 230;
 
 const READER_CSS = `
@@ -111,6 +111,26 @@ export default function ReadPage() {
   const autoFs = useRef(false);
   const foldedRef = useRef<Folded | null>(null);
   const chapterStarts = useRef<number[]>([]);
+  const linesRef = useRef<Line[] | null>(null);
+  const anchorRef = useRef<number | null>(null);
+  const textLenRef = useRef(0);
+
+  const getLines = useCallback((): Line[] => {
+    const el = scrollRef.current;
+    const root = contentRef.current;
+    if (!el || !root) return [];
+    if (!linesRef.current) linesRef.current = measureLines(el, root);
+    return linesRef.current;
+  }, []);
+  const captureAnchor = useCallback((): { offset: number; textLen: number } | null => {
+    const el = scrollRef.current;
+    const root = contentRef.current;
+    if (!el || !root) return null;
+    const off = anchorOffset(el, root, getLines());
+    if (off === null) return null;
+    anchorRef.current = off;
+    return { offset: off, textLen: textLenRef.current };
+  }, [getLines]);
 
   const chapterTitles = useMemo(() => (data ? data.chapters.map((c) => c.title) : []), [data]);
   const fullHtml = useMemo(() => (data ? combineChapters(data.chapters) : ""), [data]);
@@ -196,6 +216,8 @@ export default function ReadPage() {
     }
     chapterStarts.current = starts;
     foldedRef.current = null;
+    textLenRef.current = bookText(root).length;
+    linesRef.current = null;
     setTotalWords((bookText(root).match(/\S+/g) ?? []).length);
   }, [data]);
 
@@ -217,7 +239,12 @@ export default function ReadPage() {
 
     const apply = () => {
       const max = el.scrollHeight - el.clientHeight;
-      const top = saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : saved.scrollTop;
+      linesRef.current = null;
+      const root = contentRef.current;
+      const sameText = saved.offset !== undefined && (!saved.textLen || Math.abs(saved.textLen - textLenRef.current) < 2);
+      const byOffset = sameText && root ? scrollTopForOffset(el, root, saved.offset as number) : null;
+      if (byOffset !== null) anchorRef.current = saved.offset as number;
+      const top = byOffset ?? (saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : saved.scrollTop);
       skipSave.current = true;
       el.scrollTo({ top, behavior: "auto" });
     };
@@ -247,14 +274,17 @@ export default function ReadPage() {
     if (!el) return;
     let t: ReturnType<typeof setTimeout> | null = null;
     let raf = 0;
+    let anchorT: ReturnType<typeof setTimeout> | null = null;
 
-    const persist = () => savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight);
+    const persist = () => savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight, captureAnchor());
     const onScroll = () => {
       const max = el.scrollHeight - el.clientHeight;
       if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
       if (el.scrollHeight > 0) setPageFrac(el.clientHeight / el.scrollHeight);
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => setChapterIdx(currentChapterFromDom()));
+      if (anchorT) clearTimeout(anchorT);
+      anchorT = setTimeout(() => { anchorT = null; if (!skipSave.current) captureAnchor(); }, 100);
       if (skipSave.current) { skipSave.current = false; return; }
       if (t) clearTimeout(t);
       t = setTimeout(() => { t = null; persist(); }, 500);
@@ -273,16 +303,17 @@ export default function ReadPage() {
       window.removeEventListener("pagehide", flush);
       document.removeEventListener("visibilitychange", onVisibility);
       cancelAnimationFrame(raf);
+      if (anchorT) clearTimeout(anchorT);
       flush();
     };
-  }, [data, bookId, currentChapterFromDom]);
+  }, [data, bookId, currentChapterFromDom, captureAnchor]);
 
   const saveAndClose = useCallback(() => {
     const el = scrollRef.current;
-    if (el && restoredFor.current === bookId) savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight);
+    if (el && restoredFor.current === bookId) savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight, captureAnchor());
     exitFs();
     router.back();
-  }, [bookId, router]);
+  }, [bookId, router, captureAnchor]);
 
   const toggleFs = useCallback(() => {
     if (isFsOn()) exitFs();
@@ -291,16 +322,33 @@ export default function ReadPage() {
 
   // ── Navegação por página ──
   const calcStep = useCallback((el: HTMLDivElement, dir: "next" | "prev"): number => {
-    let lineH = 24;
-    if (contentRef.current) {
-      const lh = parseFloat(window.getComputedStyle(contentRef.current).lineHeight);
-      if (lh > 0) lineH = lh;
-    }
-    const lines = Math.floor((el.clientHeight - CONTEXT_PX) / lineH);
-    const rawStep = lines * lineH;
-    const target = dir === "next" ? el.scrollTop + rawStep : el.scrollTop - rawStep;
-    return Math.round(target / lineH) * lineH - el.scrollTop;
-  }, []);
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    return pageTarget(getLines(), el.scrollTop, el.clientHeight, max, dir) - el.scrollTop;
+  }, [getLines]);
+
+  // ── Re-ancorar quando o layout muda (rodar ecrã, redimensionar, fonte, largura, imagens) ──
+  useEffect(() => {
+    if (!data) return;
+    const el = scrollRef.current;
+    const root = contentRef.current;
+    if (!el || !root) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const relayout = () => {
+      linesRef.current = null;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        timer = null;
+        if (restoredFor.current !== bookId || anchorRef.current === null) return;
+        const y = scrollTopForOffset(el, root, anchorRef.current);
+        if (y !== null && Math.abs(y - el.scrollTop) > 1) { skipSave.current = true; el.scrollTo({ top: y, behavior: "auto" }); }
+      }, 120);
+    };
+    const ro = new ResizeObserver(relayout);
+    ro.observe(el);
+    ro.observe(root);
+    root.addEventListener("load", relayout, true);
+    return () => { ro.disconnect(); root.removeEventListener("load", relayout, true); if (timer) clearTimeout(timer); };
+  }, [data, bookId]);
 
   const navigate = useCallback((dir: "next" | "prev") => {
     userMoved.current = true;

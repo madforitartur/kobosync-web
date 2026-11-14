@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, BookOpen, Usb } from "lucide-react";
+import { Check, Usb } from "lucide-react";
+import { GeneratedCover } from "./GeneratedCover";
 
 type BookCoverProps = {
   coverUrl?: string | null;
   title: string;
+  author?: string | null;
   isSelected?: boolean;
   /** 0–1: mostra barra de progresso fina (livros em leitura). */
   progress?: number;
@@ -21,7 +23,7 @@ const MAX_RETRIES = 2;
  * Capa do livro. Quando `isSelected`, a capa fica a preto e branco, com
  * rebordo à volta e um visto — para distinguir de relance os livros já selecionados.
  */
-export function BookCover({ coverUrl, title, isSelected = false, progress, sentToKobo, finished }: BookCoverProps) {
+export function BookCover({ coverUrl, title, author, isSelected = false, progress, sentToKobo, finished }: BookCoverProps) {
   const [failed, setFailed] = useState(false);
   const [retry, setRetry] = useState(0);
 
@@ -46,12 +48,6 @@ export function BookCover({ coverUrl, title, isSelected = false, progress, sentT
       ? `${coverUrl}${coverUrl.includes("?") ? "&" : "?"}r=${retry}`
       : coverUrl
     : null;
-
-  const initials = title
-    .split(" ")
-    .slice(0, 2)
-    .map((w) => w[0]?.toUpperCase() ?? "")
-    .join("");
 
   const frame = `relative aspect-epub w-full overflow-hidden rounded transition ${
     isSelected ? "ring-[3px] ring-primary ring-offset-2 ring-offset-background" : ""
@@ -89,15 +85,8 @@ export function BookCover({ coverUrl, title, isSelected = false, progress, sentT
   if (!src || failed) {
     return (
       <div className={frame}>
-        <div
-          className={`flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-primary via-primary-container to-tertiary-container p-4 text-on-primary ${
-            isSelected ? "grayscale" : ""
-          }`}
-        >
-          <BookOpen size={36} strokeWidth={1.4} className="mb-3 opacity-80" />
-          <p className="line-clamp-3 text-center text-sm font-bold leading-tight">
-            {initials || title.slice(0, 2).toUpperCase()}
-          </p>
+        <div className={`absolute inset-0 ${isSelected ? "grayscale" : ""}`}>
+          <GeneratedCover title={title} author={author} />
         </div>
         {badges}
         {checkBadge}
@@ -107,7 +96,6 @@ export function BookCover({ coverUrl, title, isSelected = false, progress, sentT
 
   return (
     <div className={frame}>
-      { }
       <img
         key={src}
         src={src}
