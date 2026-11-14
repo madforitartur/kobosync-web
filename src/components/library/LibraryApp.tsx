@@ -16,6 +16,7 @@ import { useBooksQuery } from "@/hooks/useBooksQuery";
 import { useFacets } from "@/hooks/useFacets";
 import { useSelectedBooks } from "@/hooks/useSelectedBooks";
 import { useOffline } from "@/hooks/useOffline";
+import { useCoverManager } from "@/hooks/useCoverManager";
 import { useSyncActions, type Status } from "@/hooks/useSyncActions";
 import { cleanBookTitle } from "@/lib/book-title";
 import { FINISHED_RATIO, setFinished } from "@/lib/reading-progress";
@@ -25,6 +26,7 @@ import type { Book } from "@/types/library";
 import { BookCard } from "./BookCard";
 import { BookDetail } from "./BookDetail";
 import { BookMenu, type BookMenuState } from "./BookMenu";
+import { CoversBanner } from "./CoversBanner";
 import { CollectionPicker } from "./CollectionPicker";
 import { CollectionsView } from "./CollectionsView";
 import { FilterPanel } from "./FilterPanel";
@@ -81,6 +83,7 @@ export function LibraryApp() {
   const [koboSent, setKoboSent] = useStored<Record<string, number>>("kobosync:kobo-sent", {}, "koboSent");
   const sync = useSyncActions(setStatus, bump);
   const offline = useOffline();
+  const covers = useCoverManager();
 
   // ── Consulta ──────────────────────────────────────────────────────────────
   const activeCollection = filters.collectionId ? collections.collections.find((c) => c.id === filters.collectionId) : undefined;
@@ -155,6 +158,11 @@ export function LibraryApp() {
     }
   }
 
+  async function syncLibraryAndCovers() {
+    await sync.syncLibrary();
+    covers.start(); // livros novos → capas novas
+  }
+
   function toggleFinished(book: Book) {
     const finished = progress.statusOf(book.id) === "finished";
     setFinished(book.id, { title: cleanBookTitle(book.title), author: book.author, cover_url: book.cover_url }, !finished);
@@ -162,7 +170,17 @@ export function LibraryApp() {
     setStatus({ type: "success", message: finished ? "Marcado como por ler." : "Marcado como lido." });
   }
 
-  const visible = query.books;
+  // Capas acabadas de extrair entram na lista sem recarregar
+  const visible = useMemo(
+    () => query.books.map((b) => (covers.overrides[b.id] ? { ...b, cover_url: covers.overrides[b.id] } : b)),
+    [query.books, covers.overrides],
+  );
+  // Ao mudar de página/filtro, pede já as capas que faltam nos livros visíveis
+  const ensureCovers = covers.ensure;
+  useEffect(() => {
+    if (!query.loading && query.books.length) ensureCovers(query.books);
+  }, [query.books, query.loading, ensureCovers]);
+
   const activate = useCallback((book: Book, e: React.MouseEvent | React.KeyboardEvent) => {
     const idx = visible.findIndex((b) => b.id === book.id);
     const multi = (e as React.MouseEvent).ctrlKey || (e as React.MouseEvent).metaKey;
@@ -485,12 +503,13 @@ export function LibraryApp() {
               <h1 className="min-w-0 truncate font-display-lg text-[22px] font-bold text-primary">{heading}</h1>
               <span className="shrink-0 text-xs text-on-surface-variant">{subtitle}</span>
             </div>
+            <CoversBanner state={covers.state} onStop={covers.stop} onRetry={covers.start} />
             {main}
           </main>
 
           <MobileMenu
             open={menuOpen} onClose={() => setMenuOpen(false)} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
-            onSync={sync.syncLibrary} onCovers={sync.syncCovers} syncing={sync.syncing} syncingCovers={sync.syncingCovers}
+            onSync={syncLibraryAndCovers} onCovers={covers.start} syncing={sync.syncing} syncingCovers={covers.state.running}
             canInstall={!!deferredPrompt} isStandalone={isStandalone} onInstall={handleInstall}
             onLogout={isProtected ? logout : undefined}
           />
@@ -509,8 +528,8 @@ export function LibraryApp() {
           view={view} activeCollectionId={activeCollection?.id} onView={go} onOpenCollection={openCollection}
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}
           collections={collections.collections} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
-          onSync={sync.syncLibrary} onCovers={sync.syncCovers} onFixCovers={sync.migrateCoverUrls}
-          syncing={sync.syncing} syncingCovers={sync.syncingCovers} onLogout={isProtected ? logout : undefined}
+          onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls}
+          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined}
         />
         <div className="min-w-0 flex-1">
           <header className="sticky top-0 z-40 border-b border-outline-variant bg-background/90 backdrop-blur-xl">
@@ -530,6 +549,7 @@ export function LibraryApp() {
                 <p className="mt-1 text-sm text-on-surface-variant" aria-live="polite">{subtitle}</p>
               </div>
             </div>
+            <CoversBanner state={covers.state} onStop={covers.stop} onRetry={covers.start} />
             {main}
           </main>
         </div>

@@ -28,6 +28,9 @@ export type SavedPosition = {
   scrollTop: number;
   ratio: number | null; // livros guardados antes desta versão não têm ratio
   timestamp: number;
+  /** Offset de caracteres da primeira linha visível (igual em qualquer ecrã). */
+  offset?: number;
+  textLen?: number;
 };
 
 export type ReadingEntry = BookMeta & {
@@ -74,6 +77,8 @@ export function loadPosition(bookId: string): SavedPosition | null {
     scrollTop: saved.scrollTop,
     ratio: typeof saved.ratio === "number" ? saved.ratio : null,
     timestamp: saved.timestamp ?? 0,
+    offset: typeof saved.offset === "number" ? saved.offset : undefined,
+    textLen: typeof saved.textLen === "number" ? saved.textLen : undefined,
   };
 }
 
@@ -82,11 +87,12 @@ export function savePosition(
   meta: BookMeta | null,
   scrollTop: number,
   maxScroll: number,
+  anchor?: { offset: number; textLen: number } | null,
 ) {
   const ratio = maxScroll > 0 ? Math.min(1, Math.max(0, scrollTop / maxScroll)) : 0;
   const now = Date.now();
 
-  writeJSON(POS_PREFIX + bookId, { scrollTop, ratio, timestamp: now });
+  writeJSON(POS_PREFIX + bookId, { scrollTop, ratio, timestamp: now, ...(anchor ?? {}) });
 
   const list = readList();
   const existing = list.find((e) => e.id === bookId);

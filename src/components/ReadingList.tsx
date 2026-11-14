@@ -85,7 +85,7 @@ export function ReadingList({ entries, onOpen, onRemove }: ReadingListProps) {
               aria-label={`Continuar a ler ${title}`}
             >
               <div className="w-16 shrink-0">
-                <BookCover coverUrl={cover} title={title} />
+                <BookCover coverUrl={cover} title={title} author={author} />
               </div>
               <div className="min-w-0 flex-1 py-0.5">
                 <p className="line-clamp-2 font-bold leading-snug text-primary">{title}</p>

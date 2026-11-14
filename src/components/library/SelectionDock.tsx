@@ -25,7 +25,7 @@ export function SelectionDock({ books, count, onRemove, onClear, onKobo, onColle
       <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 py-3">
         {books.map((b) => (
           <li key={b.id} className="flex items-center gap-2.5 rounded-lg p-1.5 hover:bg-surface-container-low">
-            <div className="w-9 shrink-0"><BookCover coverUrl={b.cover_url} title={cleanBookTitle(b.title)} /></div>
+            <div className="w-9 shrink-0"><BookCover coverUrl={b.cover_url} title={cleanBookTitle(b.title)} author={b.author} /></div>
             <div className="min-w-0 flex-1">
               <p className="line-clamp-2 text-xs font-bold leading-tight text-primary">{cleanBookTitle(b.title)}</p>
               <p className="truncate text-[11px] text-on-surface-variant">{b.author ?? "–"}</p>
