@@ -9,6 +9,7 @@ import { combineChapters } from "@/lib/pagination";
 import { FINISHED_RATIO, clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
 import { FONT_FAMILIES, FONT_PX, LINE_SPACING, TEXT_WIDTH, THEMES, type ReaderSettings } from "@/lib/reader-settings";
 import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@/lib/reader-annotations";
+import { PageCurl, snapshotPage } from "@/lib/page-curl";
 import { anchorOffset, measureLines, pageTarget, scrollTopForOffset, type Line } from "@/lib/reader-pages";
 import { applyHighlights, bookText, findAll, flashRange, fold, offsetsFromRange, rangeFromOffsets, type Folded } from "@/lib/reader-dom";
 import { useReaderSettings } from "@/hooks/useReaderSettings";
@@ -29,10 +30,6 @@ const READER_CSS = `
 .prose-book a { text-decoration: none !important; color: inherit !important; }
 .prose-book img { max-width: 100%; height: auto; display: block; margin: 0.75em auto; border-radius: 4px; }
 .prose-book mark.kb-hl { cursor: pointer; }
-@keyframes curlN { from { transform: perspective(1400px) rotateY(0deg); transform-origin:left center; opacity:1 } to { transform: perspective(1400px) rotateY(-90deg); transform-origin:left center; opacity:0 } }
-@keyframes curlP { from { transform: perspective(1400px) rotateY(0deg); transform-origin:right center; opacity:1 } to { transform: perspective(1400px) rotateY(90deg); transform-origin:right center; opacity:0 } }
-.curl-n { animation: curlN 0.38s cubic-bezier(.4,0,.2,1) forwards; }
-.curl-p { animation: curlP 0.38s cubic-bezier(.4,0,.2,1) forwards; }
 `;
 
 async function tryFs(): Promise<boolean> {
@@ -88,7 +85,8 @@ export default function ReadPage() {
   const [isFs, setIsFs] = useState(false);
   const [slideOut, setSlideOut] = useState(false);
   const [slideDir, setSlideDir] = useState<"next" | "prev">("next");
-  const [curlCls, setCurlCls] = useState("");
+  const curlRef = useRef<PageCurl | null>(null);
+  const curlDrag = useRef<{ ignore: boolean; active: boolean; sx: number; sy: number; vx: number; lastX: number; lastT: number; dir: "next" | "prev"; target: number } | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [selBar, setSelBar] = useState<{ x: number; y: number; start: number; end: number; text: string } | null>(null);
@@ -350,6 +348,33 @@ export default function ReadPage() {
     return () => { ro.disconnect(); root.removeEventListener("load", relayout, true); if (timer) clearTimeout(timer); };
   }, [data, bookId]);
 
+  const makeCurl = useCallback((dir: "next" | "prev", startY: number, targetTop: number): PageCurl | null => {
+    const el = scrollRef.current;
+    const root = contentRef.current;
+    const host = el?.parentElement;
+    if (!el || !root || !host) return null;
+    const theme = { bg: T.page, text: T.text, bgImage: T.eink ? getComputedStyle(el).backgroundImage : undefined };
+    const under = snapshotPage(el, root, Math.max(0, targetTop), theme);
+    const sheet = snapshotPage(el, root, el.scrollTop, theme);
+    curlRef.current?.destroy();
+    const c = new PageCurl(host, { left: el.offsetLeft, top: el.offsetTop, W: el.clientWidth, H: el.clientHeight }, under, sheet, dir, startY, theme);
+    curlRef.current = c;
+    return c;
+  }, [T]);
+
+  const finishCurl = useCallback((c: PageCurl, target: number) => {
+    const el = scrollRef.current;
+    if (el) { skipSave.current = false; el.scrollTo({ top: target, behavior: "auto" }); }
+    // deixa o browser pintar a página nova antes de retirar a folha
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      c.destroy();
+      if (curlRef.current === c) curlRef.current = null;
+      busy.current = false;
+    }));
+  }, []);
+
+  useEffect(() => () => { curlRef.current?.destroy(); }, []);
+
   const navigate = useCallback((dir: "next" | "prev") => {
     userMoved.current = true;
     if (busy.current) return;
@@ -358,12 +383,16 @@ export default function ReadPage() {
     const step = calcStep(el, dir);
     const anim = settings.pageAnim;
 
-    if (anim === "curl") {
+    if (anim === "curl" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (Math.abs(step) < 2) return;
+      const c = makeCurl(dir, el.clientHeight, el.scrollTop + step);
+      if (!c) { el.scrollBy({ top: step, behavior: "auto" }); return; }
       busy.current = true;
-      setCurlCls(dir === "next" ? "curl-n" : "curl-p");
-      setTimeout(() => { el.scrollBy({ top: step, behavior: "auto" }); setCurlCls(""); busy.current = false; }, 380);
+      const target = Math.max(0, el.scrollTop + step);
+      c.autoFlip().then(() => finishCurl(c, target));
       return;
     }
+    if (anim === "curl") { el.scrollBy({ top: step, behavior: "auto" }); return; }
     if (anim === "slide") {
       busy.current = true;
       setSlideDir(dir);
@@ -373,7 +402,7 @@ export default function ReadPage() {
     }
     if (anim === "none") el.scrollBy({ top: step, behavior: "auto" });
     else el.scrollTo({ top: el.scrollTop + step, behavior: "smooth" });
-  }, [settings.pageAnim, calcStep]);
+  }, [settings.pageAnim, calcStep, makeCurl, finishCurl]);
 
   const scrollToY = useCallback((y: number) => {
     userMoved.current = true;
@@ -535,11 +564,50 @@ export default function ReadPage() {
     const t = e.touches[0];
     tX.current = t.clientX; tY.current = t.clientY; tT.current = Date.now();
     didScroll.current = false; userMoved.current = true;
+    curlDrag.current = { ignore: busy.current || e.touches.length > 1, active: false, sx: t.clientX, sy: t.clientY, vx: 0, lastX: t.clientX, lastT: Date.now(), dir: "next", target: 0 };
   }, []);
   const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (Math.abs(e.touches[0].clientY - tY.current) > 8) didScroll.current = true;
-  }, []);
+    const t = e.touches[0];
+    if (Math.abs(t.clientY - tY.current) > 8) didScroll.current = true;
+    const g = curlDrag.current;
+    const el = scrollRef.current;
+    if (!g || g.ignore || !el || settings.pageAnim !== "curl") return;
+    const dx = t.clientX - g.sx;
+    const dy = t.clientY - g.sy;
+    if (!g.active) {
+      if (window.getSelection()?.toString()) { g.ignore = true; return; }
+      if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) { g.ignore = true; return; } // rolar na vertical
+      if (Math.abs(dx) < 10 || Math.abs(dx) < Math.abs(dy) * 1.2) return;
+      const dir = dx < 0 ? "next" : "prev";
+      if (dir === "prev" && g.sx < 16) { g.ignore = true; return; } // gesto "voltar" do sistema
+      const step = calcStep(el, dir);
+      if (Math.abs(step) < 2) { g.ignore = true; return; } // início/fim do livro
+      const c = makeCurl(dir, g.sy, el.scrollTop + step);
+      if (!c) { g.ignore = true; return; }
+      g.active = true; g.dir = dir; g.target = Math.max(0, el.scrollTop + step);
+      busy.current = true;
+      didScroll.current = true;
+    }
+    const now = Date.now();
+    const dt = Math.max(1, now - g.lastT);
+    g.vx = 0.7 * g.vx + 0.3 * ((t.clientX - g.lastX) / dt);
+    g.lastX = t.clientX; g.lastT = now;
+    curlRef.current?.set(dx, dy);
+  }, [settings.pageAnim, calcStep, makeCurl]);
+  const endCurlDrag = useCallback((cancel: boolean) => {
+    const g = curlDrag.current;
+    const c = curlRef.current;
+    if (!g?.active || !c) return false;
+    g.active = false;
+    const flick = g.dir === "next" ? g.vx < -0.45 : g.vx > 0.45;
+    const back = g.dir === "next" ? g.vx > 0.45 : g.vx < -0.45;
+    const commit = !cancel && !back && (c.progress > 0.3 || flick);
+    c.release(commit).then((ok) => { if (ok) finishCurl(c, g.target); else { c.destroy(); if (curlRef.current === c) curlRef.current = null; busy.current = false; } });
+    return true;
+  }, [finishCurl]);
+  const onTouchCancel = useCallback(() => { endCurlDrag(true); }, [endCurlDrag]);
   const onTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (endCurlDrag(false)) { e.preventDefault(); return; }
     const t = e.changedTouches[0];
     const dx = t.clientX - tX.current;
     const dy = t.clientY - tY.current;
@@ -564,7 +632,7 @@ export default function ReadPage() {
     if (t.clientX < W * 0.25) navigate("prev");
     else if (t.clientX > W * 0.75) navigate("next");
     else setShowPanel(true);
-  }, [navigate]);
+  }, [navigate, endCurlDrag]);
 
   // Clique no rato (PC): margens laterais viram a página; centro não faz nada
   const onMouseUp = (e: React.MouseEvent) => {
@@ -679,16 +747,16 @@ export default function ReadPage() {
       {/* texto */}
       <div
         ref={scrollRef}
-        className={`rdr prose-book h-full w-full overflow-y-auto overscroll-none ${curlCls}`}
+        className="rdr prose-book h-full w-full overflow-y-auto overscroll-none"
         style={{
           backgroundColor: T.page, color: T.text,
           paddingTop: isFs ? "calc(2.5rem + env(safe-area-inset-top, 0px))" : "2.5rem",
           paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
           paddingLeft: width.pad, paddingRight: width.pad,
-          scrollbarWidth: "none", WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none", WebkitOverflowScrolling: "touch", touchAction: settings.pageAnim === "curl" ? "pan-y" : undefined,
           ...(T.eink ? { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.18'/%3E%3C/svg%3E\")" } : {}),
         } as React.CSSProperties}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchCancel}
         onMouseUp={onMouseUp} onClick={onContentClick}
       >
         <div style={slideStyle}>

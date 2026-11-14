@@ -8,7 +8,10 @@ import { markChanged } from "./local-store";
 export type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type Theme = "light" | "sepia" | "dark" | "paper" | "eink";
 export type PageAnim = "none" | "fade" | "slide" | "curl";
-export type FontFamily = "serif" | "sans" | "dyslexic";
+export type FontFamily =
+  | "serif" | "sans" | "dyslexic"
+  | "literata" | "merriweather" | "lora" | "garamond" | "crimson" | "sourceserif"
+  | "georgia" | "palatino" | "atkinson" | "lexend";
 export type LineSpacing = "compact" | "normal" | "loose";
 export type TextWidth = "narrow" | "normal" | "wide";
 
@@ -38,8 +41,18 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
 };
 
 export const FONT_FAMILIES: { id: FontFamily; label: string; css: string }[] = [
-  { id: "serif", label: "Serifa", css: "'Libre Caslon Text', Georgia, 'Times New Roman', serif" },
+  { id: "serif", label: "Caslon", css: "'Libre Caslon Text', Georgia, 'Times New Roman', serif" },
+  { id: "literata", label: "Literata", css: "'Literata', Georgia, serif" },
+  { id: "merriweather", label: "Merriweather", css: "'Merriweather', Georgia, serif" },
+  { id: "lora", label: "Lora", css: "'Lora', Georgia, serif" },
+  { id: "garamond", label: "EB Garamond", css: "'EB Garamond', Garamond, Georgia, serif" },
+  { id: "crimson", label: "Crimson Pro", css: "'Crimson Pro', Georgia, serif" },
+  { id: "sourceserif", label: "Source Serif", css: "'Source Serif 4', Georgia, serif" },
+  { id: "georgia", label: "Georgia", css: "Georgia, 'Times New Roman', serif" },
+  { id: "palatino", label: "Palatino", css: "'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif" },
   { id: "sans", label: "Sem serifa", css: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif" },
+  { id: "atkinson", label: "Atkinson", css: "'Atkinson Hyperlegible', system-ui, sans-serif" },
+  { id: "lexend", label: "Lexend", css: "'Lexend', system-ui, sans-serif" },
   { id: "dyslexic", label: "Dislexia", css: "'OpenDyslexic', 'Comic Sans MS', sans-serif" },
 ];
 export const LINE_SPACING: Record<LineSpacing, { label: string; factor: number }> = {

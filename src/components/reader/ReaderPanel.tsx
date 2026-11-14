@@ -119,10 +119,10 @@ export function ReaderPanel(p: Props) {
                   </div>
                   <div>
                     {label("Tipo de letra")}
-                    <div className="flex gap-1.5">
+                    <div className="grid grid-cols-3 gap-1.5">
                       {FONT_FAMILIES.map((f) => (
                         <button key={f.id} onClick={() => p.onSettings({ fontFamily: f.id as FontFamily })} aria-pressed={p.settings.fontFamily === f.id}
-                          className="flex h-10 flex-1 items-center justify-center rounded-xl text-xs font-bold"
+                          className="flex h-11 items-center justify-center truncate rounded-xl px-1 text-[13px]"
                           style={{ ...chip(p.settings.fontFamily === f.id), fontFamily: f.css }}>
                           {f.label}
                         </button>
