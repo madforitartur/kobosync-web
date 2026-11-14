@@ -10,6 +10,7 @@ import {
   Maximize,
   Moon,
   RefreshCw,
+  Settings,
   Sun,
   X,
 } from "lucide-react";
@@ -31,6 +32,7 @@ type MobileMenuProps = {
   onInstall: () => void;
   /** Só existe quando a app está protegida por PIN. */
   onLogout?: () => void;
+  userName?: string | null;
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -74,6 +76,7 @@ export function MobileMenu({
   isStandalone,
   onInstall,
   onLogout,
+  userName,
 }: MobileMenuProps) {
   const { settings, update } = useReaderSettings();
   const [isFs, setIsFs] = useState(false);
@@ -283,10 +286,14 @@ export function MobileMenu({
                   )}
                 </>
               )}
+              <a href="/definicoes" className={`${rowClass} mt-3`}>
+                <Settings size={18} />
+                Definições{userName ? ` · ${userName}` : ""}
+              </a>
               {onLogout && (
                 <button onClick={act(onLogout)} className={`${rowClass} mt-3`}>
                   <LogOut size={18} />
-                  Sair (bloquear com PIN)
+                  Mudar de utilizador
                 </button>
               )}
             </div>

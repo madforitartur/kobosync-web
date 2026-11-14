@@ -9,6 +9,7 @@ import {
 } from "./local-store";
 import { SETTINGS_EVENT } from "./reader-settings";
 import { READING_EVENT } from "./reading-progress";
+import { adoptUser } from "./user-session";
 
 /**
  * Sincroniza dados pessoais entre dispositivos (via /api/userdata → Firestore).
@@ -27,6 +28,9 @@ const KEYS: Record<Exclude<Domain, "positions">, string> = {
   collections: "kobosync:collections",
   selection: "kobosync:selection",
   koboSent: "kobosync:kobo-sent",
+  darkMode: "kobosync:dark",
+  viewMode: "kobosync:view-mode",
+  density: "kobosync:density",
 };
 
 export const ALL_DOMAINS: Domain[] = ["positions", ...(Object.keys(KEYS) as Array<keyof typeof KEYS>)];
@@ -105,6 +109,23 @@ async function pull(): Promise<void> {
   for (const d of toPush) await push(d);
 }
 
+/** Sincroniza já (usado antes de mudar de utilizador). */
+export async function syncNow(): Promise<void> {
+  await pull();
+}
+
+/** Garante que os dados locais são do utilizador autenticado; se não forem, recomeça limpo. */
+async function ensureUser(): Promise<boolean> {
+  try {
+    const d = await (await fetch("/api/auth/status", { cache: "no-store" })).json();
+    if (d.user?.id && adoptUser(d.user.id)) {
+      window.location.reload();
+      return false;
+    }
+  } catch {}
+  return true;
+}
+
 let started = false;
 
 export function startCloudSync(): () => void {
@@ -144,7 +165,7 @@ export function startCloudSync(): () => void {
   window.addEventListener(LOCAL_CHANGE_EVENT, onLocal);
   document.addEventListener("visibilitychange", onVisible);
   window.addEventListener("pagehide", flush);
-  pull().catch(() => {});
+  ensureUser().then((ok) => { if (ok) pull().catch(() => {}); });
 
   return () => {
     started = false;

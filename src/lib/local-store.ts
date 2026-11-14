@@ -10,7 +10,10 @@ export type Domain =
   | "highlights"
   | "collections"
   | "selection"
-  | "koboSent";
+  | "koboSent"
+  | "darkMode"
+  | "viewMode"
+  | "density";
 
 export const LOCAL_CHANGE_EVENT = "kobosync:local-changed";
 const TS_PREFIX = "kobosync:ts:";

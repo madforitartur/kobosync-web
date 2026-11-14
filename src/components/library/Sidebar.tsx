@@ -1,6 +1,7 @@
 "use client";
 
-import { BookMarked, BookOpen, Check, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
+import Link from "next/link";
+import { Settings, BookMarked, BookOpen, Check, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
 import type { Collection } from "@/hooks/useCollections";
 
 export type DesktopView = "library" | "reading" | "series" | "authors" | "collections" | "selected";
@@ -20,9 +21,10 @@ type Props = {
   syncing: boolean;
   syncingCovers: boolean;
   onLogout?: () => void;
+  userName?: string | null;
 };
 
-export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onLogout }: Props) {
+export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onLogout, userName }: Props) {
   const item = (id: DesktopView, label: string, Icon: typeof BookOpen, count?: number) => {
     const active = view === id && !activeCollectionId;
     return (
@@ -73,7 +75,8 @@ export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, co
         <button className={tool} onClick={onCovers} disabled={syncingCovers}><ImageIcon size={16} className={syncingCovers ? "animate-pulse" : ""} /> Sincronizar capas</button>
         <button className={tool} onClick={onFixCovers}><RefreshCw size={16} /> Corrigir capas</button>
         <button className={tool} onClick={onToggleDark}>{darkMode ? <Sun size={16} /> : <Moon size={16} />} {darkMode ? "Modo claro" : "Modo escuro"}</button>
-        {onLogout && <button className={tool} onClick={onLogout}><LogOut size={16} /> Sair</button>}
+        <Link href="/definicoes" className={tool}><Settings size={16} /> Definições</Link>
+        {onLogout && <button className={tool} onClick={onLogout}><LogOut size={16} /> {userName ? `Mudar de utilizador (${userName})` : "Sair"}</button>}
       </div>
     </aside>
   );
