@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin-guard";
 import { NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/env";
 import { listDriveEpubs } from "@/lib/google-drive";
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
+  const denied = await requireAdmin();
+  if (denied) return denied;
   try {
     const config = getServerConfig();
 

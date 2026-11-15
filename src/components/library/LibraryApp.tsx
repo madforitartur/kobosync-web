@@ -16,6 +16,7 @@ import { useBooksQuery } from "@/hooks/useBooksQuery";
 import { useFacets } from "@/hooks/useFacets";
 import { useSelectedBooks } from "@/hooks/useSelectedBooks";
 import { useOffline } from "@/hooks/useOffline";
+import { useCoverManager } from "@/hooks/useCoverManager";
 import { useSyncActions, type Status } from "@/hooks/useSyncActions";
 import { cleanBookTitle } from "@/lib/book-title";
 import { FINISHED_RATIO, setFinished } from "@/lib/reading-progress";
@@ -25,6 +26,7 @@ import type { Book } from "@/types/library";
 import { BookCard } from "./BookCard";
 import { BookDetail } from "./BookDetail";
 import { BookMenu, type BookMenuState } from "./BookMenu";
+import { CoversBanner } from "./CoversBanner";
 import { CollectionPicker } from "./CollectionPicker";
 import { CollectionsView } from "./CollectionsView";
 import { FilterPanel } from "./FilterPanel";
@@ -46,7 +48,7 @@ const hasBookFile = (b: Book) => !!(b.epub_url || b.drive_file_id);
 export function LibraryApp() {
   const touch = useIsTouchDevice();
   const [mounted, setMounted] = useState(false);
-  const [darkMode, setDarkMode] = useStored<boolean>("kobosync:dark", false);
+  const [darkMode, setDarkMode] = useStored<boolean>("kobosync:dark", false, "darkMode");
   const [status, setStatus] = useState<Status>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const bump = useCallback(() => setReloadKey((k) => k + 1), []);
@@ -57,8 +59,8 @@ export function LibraryApp() {
   const [sort, setSort] = useState<SortKey>("title");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
-  const [viewMode, setViewMode] = useStored<ViewMode>("kobosync:view-mode", "grid");
-  const [density, setDensity] = useStored<number>("kobosync:density", 1);
+  const [viewMode, setViewMode] = useStored<ViewMode>("kobosync:view-mode", "grid", "viewMode");
+  const [density, setDensity] = useStored<number>("kobosync:density", 1, "density");
   const [selectMode, setSelectMode] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -69,6 +71,8 @@ export function LibraryApp() {
   const [koboOpen, setKoboOpen] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isProtected, setIsProtected] = useState(false);
+  const [userName, setUserName] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [exploreTab, setExploreTab] = useState<"series" | "authors" | "collections">("series");
   const searchRef = useRef<HTMLInputElement>(null);
   const lastIndex = useRef<number | null>(null);
@@ -81,6 +85,7 @@ export function LibraryApp() {
   const [koboSent, setKoboSent] = useStored<Record<string, number>>("kobosync:kobo-sent", {}, "koboSent");
   const sync = useSyncActions(setStatus, bump);
   const offline = useOffline();
+  const covers = useCoverManager();
 
   // ── Consulta ──────────────────────────────────────────────────────────────
   const activeCollection = filters.collectionId ? collections.collections.find((c) => c.id === filters.collectionId) : undefined;
@@ -98,6 +103,16 @@ export function LibraryApp() {
   useEffect(() => { if (view === "selected" && selection.list.length === 0) setView("library"); }, [view, selection.list.length]);
   useEffect(() => { if (page > query.totalPages && !query.loading) setPage(query.totalPages); }, [page, query.totalPages, query.loading]);
 
+  // Regista as pesquisas (só o administrador vê o registo), depois de parar de escrever
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) return;
+    const t = setTimeout(() => {
+      fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: term, scope: "library" }), keepalive: true }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [q]);
+
   // ── Arranque ──────────────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
@@ -106,7 +121,7 @@ export function LibraryApp() {
     if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
     const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    fetch("/api/auth/status").then((r) => r.json()).then((d) => setIsProtected(!!d.protected)).catch(() => {});
+    fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); setIsAdmin(d.user?.role === "admin"); }).catch(() => {});
     import("@/lib/cloud-sync").then((m) => m.startCloudSync());
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
@@ -119,8 +134,8 @@ export function LibraryApp() {
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
-    window.location.href = "/login";
+    const m = await import("@/lib/user-session");
+    await m.logoutAndWipe();
   }
 
   // ── Ações sobre livros ────────────────────────────────────────────────────
@@ -155,6 +170,11 @@ export function LibraryApp() {
     }
   }
 
+  async function syncLibraryAndCovers() {
+    await sync.syncLibrary();
+    covers.start(); // livros novos → capas novas
+  }
+
   function toggleFinished(book: Book) {
     const finished = progress.statusOf(book.id) === "finished";
     setFinished(book.id, { title: cleanBookTitle(book.title), author: book.author, cover_url: book.cover_url }, !finished);
@@ -162,7 +182,17 @@ export function LibraryApp() {
     setStatus({ type: "success", message: finished ? "Marcado como por ler." : "Marcado como lido." });
   }
 
-  const visible = query.books;
+  // Capas acabadas de extrair entram na lista sem recarregar
+  const visible = useMemo(
+    () => query.books.map((b) => (covers.overrides[b.id] ? { ...b, cover_url: covers.overrides[b.id] } : b)),
+    [query.books, covers.overrides],
+  );
+  // Ao mudar de página/filtro, pede já as capas que faltam nos livros visíveis
+  const ensureCovers = covers.ensure;
+  useEffect(() => {
+    if (!query.loading && query.books.length) ensureCovers(query.books);
+  }, [query.books, query.loading, ensureCovers]);
+
   const activate = useCallback((book: Book, e: React.MouseEvent | React.KeyboardEvent) => {
     const idx = visible.findIndex((b) => b.id === book.id);
     const multi = (e as React.MouseEvent).ctrlKey || (e as React.MouseEvent).metaKey;
@@ -485,14 +515,15 @@ export function LibraryApp() {
               <h1 className="min-w-0 truncate font-display-lg text-[22px] font-bold text-primary">{heading}</h1>
               <span className="shrink-0 text-xs text-on-surface-variant">{subtitle}</span>
             </div>
+            <CoversBanner state={covers.state} onStop={covers.stop} onRetry={covers.start} />
             {main}
           </main>
 
           <MobileMenu
             open={menuOpen} onClose={() => setMenuOpen(false)} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
-            onSync={sync.syncLibrary} onCovers={sync.syncCovers} syncing={sync.syncing} syncingCovers={sync.syncingCovers}
+            onSync={syncLibraryAndCovers} onCovers={covers.start} syncing={sync.syncing} syncingCovers={covers.state.running}
             canInstall={!!deferredPrompt} isStandalone={isStandalone} onInstall={handleInstall}
-            onLogout={isProtected ? logout : undefined}
+            onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
           />
           <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} />
           {overlays}
@@ -509,8 +540,8 @@ export function LibraryApp() {
           view={view} activeCollectionId={activeCollection?.id} onView={go} onOpenCollection={openCollection}
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}
           collections={collections.collections} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
-          onSync={sync.syncLibrary} onCovers={sync.syncCovers} onFixCovers={sync.migrateCoverUrls}
-          syncing={sync.syncing} syncingCovers={sync.syncingCovers} onLogout={isProtected ? logout : undefined}
+          onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls}
+          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
         />
         <div className="min-w-0 flex-1">
           <header className="sticky top-0 z-40 border-b border-outline-variant bg-background/90 backdrop-blur-xl">
@@ -530,6 +561,7 @@ export function LibraryApp() {
                 <p className="mt-1 text-sm text-on-surface-variant" aria-live="polite">{subtitle}</p>
               </div>
             </div>
+            <CoversBanner state={covers.state} onStop={covers.stop} onRetry={covers.start} />
             {main}
           </main>
         </div>

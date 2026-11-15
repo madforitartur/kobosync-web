@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin-guard";
 /**
  * POST /api/covers/migrate
  * Manutenção: volta a dar uma oportunidade aos livros marcados como "sem capa"
@@ -11,6 +12,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST() {
+  const denied = await requireAdmin();
+  if (denied) return denied;
   const books = await getAllBooksCached(true);
   const failed = books.filter((b) => (b.cover_failed || b.cover_missing) && !b.cover_url);
 

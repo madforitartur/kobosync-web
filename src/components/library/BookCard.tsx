@@ -42,7 +42,7 @@ function BookCardBase({ book, selected, progress, sentToKobo, finished, compact,
   };
 
   const cover = (
-    <BookCover coverUrl={book.cover_url} title={title} isSelected={selected} progress={progress} sentToKobo={sentToKobo} finished={finished} />
+    <BookCover coverUrl={book.cover_url} title={title} author={book.author} isSelected={selected} progress={progress} sentToKobo={sentToKobo} finished={finished} />
   );
 
   if (variant === "list") {

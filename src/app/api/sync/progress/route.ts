@@ -1,3 +1,4 @@
+import { requireAdmin } from "@/lib/admin-guard";
 /**
  * GET /api/sync/progress
  * Devolve o estado actual do sync de livros (doc "books" em sync_state).
@@ -8,6 +9,8 @@ import { getSyncState } from "@/lib/firebase/sync-state";
 export const runtime = "nodejs";
 
 export async function GET() {
+  const denied = await requireAdmin();
+  if (denied) return denied;
   const state = await getSyncState("books");
 
   if (!state) {

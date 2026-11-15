@@ -50,7 +50,7 @@ export function BookDetail({ book, touch, selected, status, progress, sentToKobo
         <div>
           <div className="flex gap-4">
             <div className="w-28 shrink-0">
-              <BookCover coverUrl={book.cover_url} title={cleanBookTitle(book.title)} isSelected={selected} progress={progress} finished={status === "finished"} />
+              <BookCover coverUrl={book.cover_url} title={cleanBookTitle(book.title)} author={book.author} isSelected={selected} progress={progress} finished={status === "finished"} />
             </div>
             <div className="min-w-0">
               <h3 className="font-display-lg text-xl font-bold leading-tight text-primary">{cleanBookTitle(book.title)}</h3>

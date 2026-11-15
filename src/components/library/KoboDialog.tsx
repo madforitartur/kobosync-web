@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { FolderDown, Loader2, Package } from "lucide-react";
+import Link from "next/link";
+import { FolderDown, Loader2, Package, Wifi } from "lucide-react";
 import { Modal } from "./Modal";
 import { downloadZip, sendToFolder, supportsFolderPicker, type ExportResult } from "@/lib/kobo-export";
 import type { Book } from "@/types/library";
@@ -45,6 +46,13 @@ export function KoboDialog({ open, onClose, touch, books, total, onDone }: Props
         {partial && <> A enviar já {books.length} de {total} (os restantes ainda estão a carregar).</>}
       </p>
       <div className="space-y-3">
+        <Link href="/kobo" className="flex w-full items-start gap-3 rounded-xl border-2 border-primary p-4 text-left hover:bg-surface-container-low">
+          <Wifi size={22} className="mt-0.5 shrink-0 text-primary" />
+          <span>
+            <span className="block font-bold text-primary">Enviar por Wi-Fi com código</span>
+            <span className="text-sm text-on-surface-variant">Abre um endereço no browser do Kobo, escreve o código que aparece e os livros chegam sem cabos.</span>
+          </span>
+        </Link>
         <button disabled={!!busy || !folderOk || books.length === 0} onClick={() => run("folder")}
           className="flex w-full items-start gap-3 rounded-xl border border-outline-variant p-4 text-left hover:bg-surface-container-low disabled:opacity-50">
           <FolderDown size={22} className="mt-0.5 shrink-0 text-primary" />

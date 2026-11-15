@@ -1,3 +1,4 @@
+import { ADMIN_ID } from "@/lib/auth";
 import { getDb } from "./admin";
 
 /**
@@ -17,20 +18,24 @@ export const DOMAINS = [
   "collections",
   "selection",
   "koboSent",
+  "darkMode",
+  "viewMode",
+  "density",
 ] as const;
 export type Domain = (typeof DOMAINS)[number];
 
 const MAX_BYTES = 900_000; // limite do Firestore: 1 MiB por documento
 
-const ref = () => getDb().collection("userdata").doc("state");
+/** O administrador mantém o documento que já existia; os outros têm o seu. */
+const ref = (uid: string) => (uid === ADMIN_ID ? getDb().collection("userdata").doc("state") : getDb().collection("userdata_u").doc(uid));
 
-export async function readUserState(): Promise<UserState> {
-  const snap = await ref().get();
+export async function readUserState(uid: string): Promise<UserState> {
+  const snap = await ref(uid).get();
   return (snap.exists ? (snap.data() as UserState) : {}) ?? {};
 }
 
-export async function writeDomain(domain: Domain, data: unknown, updatedAt: number): Promise<void> {
+export async function writeDomain(uid: string, domain: Domain, data: unknown, updatedAt: number): Promise<void> {
   const size = Buffer.byteLength(JSON.stringify(data ?? null));
   if (size > MAX_BYTES) throw new Error(`Dados de "${domain}" demasiado grandes (${size} bytes).`);
-  await ref().set({ [domain]: { data, updatedAt } }, { merge: true });
+  await ref(uid).set({ [domain]: { data, updatedAt } }, { merge: true });
 }

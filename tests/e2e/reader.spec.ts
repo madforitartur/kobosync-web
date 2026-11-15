@@ -62,7 +62,8 @@ test("pesquisa no livro encontra resultados sem acentos", async ({ page }) => {
 
 test("opções de aspeto ficam guardadas", async ({ page }) => {
   await page.getByLabel("Abrir painel de leitura").click();
-  await page.getByRole("button", { name: "Sem serifa" }).click();
+  await page.locator('[aria-controls="font-list"]').click();
+  await page.getByRole("button", { name: "Inter", exact: true }).click();
   await page.getByRole("button", { name: "XL", exact: true }).click();
   const s = JSON.parse((await page.evaluate(() => localStorage.getItem("kobosync:reader-settings")))!);
   expect(s.fontFamily).toBe("sans");

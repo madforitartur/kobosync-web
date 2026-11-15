@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
 import { getPin } from "@/lib/auth";
+import { currentUserId } from "@/lib/session";
+import { getUser } from "@/lib/firebase/users";
 
 export const runtime = "nodejs";
 
-/** Diz à interface se a app está protegida por PIN (para mostrar o botão "Sair"). */
+/** Utilizador atual e se a app está protegida por PIN. */
 export async function GET() {
-  return NextResponse.json({ protected: !!getPin() });
+  const uid = await currentUserId();
+  const user = await getUser(uid).catch(() => null);
+  return NextResponse.json(
+    { protected: !!getPin(), user: user ? { id: user.id, name: user.name, role: user.role } : null },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }

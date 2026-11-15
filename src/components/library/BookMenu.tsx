@@ -78,7 +78,7 @@ export function BookMenu({ state, touch, selected, status, offlineSaved, offline
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-3">
-              <div className="w-14 shrink-0"><BookCover coverUrl={book.cover_url} title={cleanBookTitle(book.title)} /></div>
+              <div className="w-14 shrink-0"><BookCover coverUrl={book.cover_url} title={cleanBookTitle(book.title)} author={book.author} /></div>
               <div className="min-w-0">
                 <p className="truncate font-bold text-primary">{cleanBookTitle(book.title)}</p>
                 <p className="truncate text-sm text-on-surface-variant">{book.author ?? "Autor desconhecido"}</p>

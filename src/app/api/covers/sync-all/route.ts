@@ -6,6 +6,9 @@
  * este endpoint até remaining === 0. Sem estado em segundo plano: se a página
  * fechar, basta clicar de novo e continua de onde ficou.
  *
+ * Com `ids` só trata esses livros (prioridade: os que o utilizador está a ver);
+ * sem `ids` trata todos os que faltam.
+ *
  * Cada EPUB é descarregado do Google Drive (só leitura), a capa é extraída,
  * comprimida e guardada no Firestore (colecção "covers").
  */
@@ -17,7 +20,7 @@ import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-const CONCURRENCY = 4;
+const CONCURRENCY = 6;
 const TIME_BUDGET_MS = 35_000; // não começa novos grupos depois disto
 
 export async function POST(request: Request) {
@@ -25,6 +28,8 @@ export async function POST(request: Request) {
   let success = 0;
   let missing = 0; // EPUB sem imagem de capa (definitivo)
   const failedIds: string[] = []; // erros temporários (Drive, rede): tentam-se mais tarde
+  const covers: Record<string, string> = {}; // id → cover_url (para a interface atualizar sem recarregar)
+  const missingIds: string[] = [];
   const errors: Array<{ bookId: string; title?: string; reason: string }> = [];
 
   try {
@@ -32,9 +37,14 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const skip = new Set<string>(Array.isArray(body?.skip) ? body.skip : []);
 
-    const pending = (await listBooksWithoutCover(undefined, true)).filter((b) => !skip.has(b.id));
+    const only = Array.isArray(body?.ids) ? new Set<string>(body.ids.slice(0, 100)) : null;
+    const budget = Math.min(Number(body?.budgetMs) || TIME_BUDGET_MS, TIME_BUDGET_MS);
 
-    for (let i = 0; i < pending.length && Date.now() - started < TIME_BUDGET_MS; i += CONCURRENCY) {
+    const pending = (await listBooksWithoutCover(undefined, true)).filter(
+      (b) => !skip.has(b.id) && (!only || only.has(b.id)),
+    );
+
+    for (let i = 0; i < pending.length && Date.now() - started < budget; i += CONCURRENCY) {
       const chunk = pending.slice(i, i + CONCURRENCY);
       const patches: BookPatch[] = [];
 
@@ -49,11 +59,13 @@ export async function POST(request: Request) {
 
             if (!result) {
               patches.push({ id: book.id, cover_missing: true });
+              missingIds.push(book.id);
               missing++;
               return;
             }
 
             patches.push({ id: book.id, cover_url: result.url, cover_missing: false, cover_failed: false });
+            covers[book.id] = result.url;
             success++;
           } catch (err) {
             // Erro temporário: NÃO marca o livro, para voltar a ser tentado
@@ -74,6 +86,8 @@ export async function POST(request: Request) {
       missing,
       failed: failedIds.length,
       failedIds,
+      covers,
+      missingIds,
       processed: success + missing + failedIds.length,
       remaining,
       done: remaining === 0,

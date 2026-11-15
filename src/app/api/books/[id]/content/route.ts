@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { currentUserId } from "@/lib/session";
+import { logActivity } from "@/lib/firebase/activity";
 import { getBookById } from "@/lib/firebase/books";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 import JSZip from "jszip";
@@ -19,6 +21,8 @@ export async function GET(
     if (!book) {
       return NextResponse.json({ error: "Book not found" }, { status: 404 });
     }
+
+    await logActivity({ uid: await currentUserId(), type: "read", bookId: id, title: book.title ?? undefined }, 20 * 60_000);
 
     let arrayBuffer: ArrayBuffer;
 
