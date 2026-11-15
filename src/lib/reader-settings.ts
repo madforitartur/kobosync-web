@@ -11,7 +11,11 @@ export type PageAnim = "none" | "fade" | "slide" | "curl";
 export type FontFamily =
   | "serif" | "sans" | "dyslexic"
   | "literata" | "merriweather" | "lora" | "garamond" | "crimson" | "sourceserif"
-  | "georgia" | "palatino" | "atkinson" | "lexend";
+  | "georgia" | "palatino" | "atkinson" | "lexend"
+  | "bitter" | "baskerville" | "notoserif" | "ptserif" | "spectral" | "vollkorn" | "cormorant" | "alegreya" | "robotoslab"
+  | "opensans" | "nunito" | "sourcesans" | "fira" | "worksans";
+
+export type FontGroup = "serif" | "sans" | "easy";
 export type LineSpacing = "compact" | "normal" | "loose";
 export type TextWidth = "narrow" | "normal" | "wide";
 
@@ -40,20 +44,40 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   dim: 0,
 };
 
-export const FONT_FAMILIES: { id: FontFamily; label: string; css: string }[] = [
-  { id: "serif", label: "Caslon", css: "'Libre Caslon Text', Georgia, 'Times New Roman', serif" },
-  { id: "literata", label: "Literata", css: "'Literata', Georgia, serif" },
-  { id: "merriweather", label: "Merriweather", css: "'Merriweather', Georgia, serif" },
-  { id: "lora", label: "Lora", css: "'Lora', Georgia, serif" },
-  { id: "garamond", label: "EB Garamond", css: "'EB Garamond', Garamond, Georgia, serif" },
-  { id: "crimson", label: "Crimson Pro", css: "'Crimson Pro', Georgia, serif" },
-  { id: "sourceserif", label: "Source Serif", css: "'Source Serif 4', Georgia, serif" },
-  { id: "georgia", label: "Georgia", css: "Georgia, 'Times New Roman', serif" },
-  { id: "palatino", label: "Palatino", css: "'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif" },
-  { id: "sans", label: "Sem serifa", css: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif" },
-  { id: "atkinson", label: "Atkinson", css: "'Atkinson Hyperlegible', system-ui, sans-serif" },
-  { id: "lexend", label: "Lexend", css: "'Lexend', system-ui, sans-serif" },
-  { id: "dyslexic", label: "Dislexia", css: "'OpenDyslexic', 'Comic Sans MS', sans-serif" },
+export const FONT_FAMILIES: { id: FontFamily; label: string; css: string; group: FontGroup }[] = [
+  { id: "serif", label: "Caslon", css: "'Libre Caslon Text', Georgia, 'Times New Roman', serif", group: "serif" },
+  { id: "literata", label: "Literata", css: "'Literata', Georgia, serif", group: "serif" },
+  { id: "merriweather", label: "Merriweather", css: "'Merriweather', Georgia, serif", group: "serif" },
+  { id: "lora", label: "Lora", css: "'Lora', Georgia, serif", group: "serif" },
+  { id: "garamond", label: "EB Garamond", css: "'EB Garamond', Garamond, Georgia, serif", group: "serif" },
+  { id: "cormorant", label: "Cormorant", css: "'Cormorant Garamond', Garamond, Georgia, serif", group: "serif" },
+  { id: "crimson", label: "Crimson Pro", css: "'Crimson Pro', Georgia, serif", group: "serif" },
+  { id: "sourceserif", label: "Source Serif", css: "'Source Serif 4', Georgia, serif", group: "serif" },
+  { id: "notoserif", label: "Noto Serif", css: "'Noto Serif', Georgia, serif", group: "serif" },
+  { id: "ptserif", label: "PT Serif", css: "'PT Serif', Georgia, serif", group: "serif" },
+  { id: "baskerville", label: "Baskerville", css: "'Libre Baskerville', Baskerville, Georgia, serif", group: "serif" },
+  { id: "spectral", label: "Spectral", css: "'Spectral', Georgia, serif", group: "serif" },
+  { id: "vollkorn", label: "Vollkorn", css: "'Vollkorn', Georgia, serif", group: "serif" },
+  { id: "alegreya", label: "Alegreya", css: "'Alegreya', Georgia, serif", group: "serif" },
+  { id: "bitter", label: "Bitter", css: "'Bitter', Georgia, serif", group: "serif" },
+  { id: "robotoslab", label: "Roboto Slab", css: "'Roboto Slab', Georgia, serif", group: "serif" },
+  { id: "georgia", label: "Georgia", css: "Georgia, 'Times New Roman', serif", group: "serif" },
+  { id: "palatino", label: "Palatino", css: "'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif", group: "serif" },
+  { id: "sans", label: "Inter", css: "'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif", group: "sans" },
+  { id: "opensans", label: "Open Sans", css: "'Open Sans', system-ui, sans-serif", group: "sans" },
+  { id: "sourcesans", label: "Source Sans", css: "'Source Sans 3', system-ui, sans-serif", group: "sans" },
+  { id: "fira", label: "Fira Sans", css: "'Fira Sans', system-ui, sans-serif", group: "sans" },
+  { id: "worksans", label: "Work Sans", css: "'Work Sans', system-ui, sans-serif", group: "sans" },
+  { id: "nunito", label: "Nunito", css: "'Nunito', system-ui, sans-serif", group: "sans" },
+  { id: "atkinson", label: "Atkinson", css: "'Atkinson Hyperlegible', system-ui, sans-serif", group: "easy" },
+  { id: "lexend", label: "Lexend", css: "'Lexend', system-ui, sans-serif", group: "easy" },
+  { id: "dyslexic", label: "Dislexia", css: "'OpenDyslexic', 'Comic Sans MS', sans-serif", group: "easy" },
+];
+
+export const FONT_GROUPS: { id: FontGroup; label: string }[] = [
+  { id: "serif", label: "Com serifa" },
+  { id: "sans", label: "Sem serifa" },
+  { id: "easy", label: "Leitura fácil" },
 ];
 export const LINE_SPACING: Record<LineSpacing, { label: string; factor: number }> = {
   compact: { label: "Compacto", factor: 1.5 },

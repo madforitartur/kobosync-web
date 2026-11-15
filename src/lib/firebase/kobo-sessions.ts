@@ -12,7 +12,7 @@ const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // sem 0/O/1/I
 const TTL_MS = 45 * 60_000;
 const MAX_FILES = 100;
 
-export type KoboFile = { id: string; title: string; filename: string };
+export type KoboFile = { id: string; title: string; filename: string; by?: string };
 type Session = { secret: string; createdAt: number; expiresAt: number; files: KoboFile[] };
 
 export const normalizeCode = (c: unknown) => String(c ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);

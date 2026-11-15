@@ -44,7 +44,8 @@ async function tryFs(): Promise<boolean> {
 function exitFs() {
   try {
     const d = document as Document & { webkitExitFullscreen?: () => void };
-    if (document.exitFullscreen) document.exitFullscreen();
+    if (!isFsOn()) return;
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
     else if (d.webkitExitFullscreen) d.webkitExitFullscreen();
   } catch {}
 }
@@ -144,6 +145,16 @@ export default function ReadPage() {
     document.head.appendChild(s);
     return () => { document.getElementById("rdr-css")?.remove(); };
   }, []);
+
+  // Regista pesquisas feitas dentro do livro
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (term.length < 3) return;
+    const t = setTimeout(() => {
+      fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: term, scope: "reader", bookId, title: bookRef.current?.title ?? "" }), keepalive: true }).catch(() => {});
+    }, 2500);
+    return () => clearTimeout(t);
+  }, [searchTerm, bookId]);
 
   // Não deixa o ecrã apagar nem escurecer enquanto se lê
   useEffect(() => keepAwake(), []);
@@ -314,7 +325,9 @@ export default function ReadPage() {
     const el = scrollRef.current;
     if (el && restoredFor.current === bookId) savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight, captureAnchor());
     exitFs();
-    router.back();
+    // O livro abre muitas vezes num separador novo: sem histórico, vai direto à biblioteca
+    if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) router.back();
+    else router.push("/");
   }, [bookId, router, captureAnchor]);
 
   const toggleFs = useCallback(() => {
@@ -725,7 +738,7 @@ export default function ReadPage() {
         highlights={highlights}
         onGoHighlight={(h) => goToOffset(h.start, h.end)} onDeleteHighlight={deleteHighlight}
         searchTerm={searchTerm} onSearchTerm={setSearchTerm} hits={hits} onGoHit={(h) => goToOffset(h.start, h.end)}
-        progress={progress} onClearPosition={() => { clearPosition(bookId); setRestored(false); }}
+        progress={progress} onShelve={saveAndClose} onClearPosition={() => { clearPosition(bookId); setRestored(false); }}
       />
 
       {/* texto selecionado → escolher cor */}

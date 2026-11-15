@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { Activity, ArrowLeft, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { logoutAndWipe } from "@/lib/user-session";
 
 type User = { id: string; name: string; role: "admin" | "user" };
@@ -88,6 +88,16 @@ export default function SettingsPage() {
             </form>
           )}
         </section>
+      )}
+
+      {isAdmin && (
+        <Link href="/definicoes/atividade" className="mt-6 flex items-center gap-3 rounded-2xl border border-outline-variant p-4 hover:bg-surface-container-low">
+          <Activity size={22} className="shrink-0 text-primary" />
+          <span>
+            <span className="block font-bold text-primary">Registo de atividade</span>
+            <span className="text-sm text-on-surface-variant">Logins, leituras, descargas e pesquisas de cada utilizador.</span>
+          </span>
+        </Link>
       )}
 
       {isAdmin && (

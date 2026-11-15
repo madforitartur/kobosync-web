@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Settings, BookMarked, BookOpen, Check, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
+import { Activity, Settings, BookMarked, BookOpen, Check, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
 import type { Collection } from "@/hooks/useCollections";
 
 export type DesktopView = "library" | "reading" | "series" | "authors" | "collections" | "selected";
@@ -22,9 +22,10 @@ type Props = {
   syncingCovers: boolean;
   onLogout?: () => void;
   userName?: string | null;
+  isAdmin?: boolean;
 };
 
-export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onLogout, userName }: Props) {
+export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onLogout, userName, isAdmin = true }: Props) {
   const item = (id: DesktopView, label: string, Icon: typeof BookOpen, count?: number) => {
     const active = view === id && !activeCollectionId;
     return (
@@ -71,11 +72,16 @@ export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, co
 
       <div className="mt-4 space-y-0.5 border-t border-outline-variant pt-3">
         <p className="mb-1 flex items-center gap-1.5 px-3 text-[10px] font-black uppercase tracking-widest text-outline"><Wrench size={11} /> Ferramentas</p>
-        <button className={tool} onClick={onSync} disabled={syncing}><RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> Sincronizar livros</button>
-        <button className={tool} onClick={onCovers} disabled={syncingCovers}><ImageIcon size={16} className={syncingCovers ? "animate-pulse" : ""} /> Sincronizar capas</button>
-        <button className={tool} onClick={onFixCovers}><RefreshCw size={16} /> Corrigir capas</button>
+        {isAdmin && (
+          <>
+            <button className={tool} onClick={onSync} disabled={syncing}><RefreshCw size={16} className={syncing ? "animate-spin" : ""} /> Sincronizar livros</button>
+            <button className={tool} onClick={onCovers} disabled={syncingCovers}><ImageIcon size={16} className={syncingCovers ? "animate-pulse" : ""} /> Sincronizar capas</button>
+            <button className={tool} onClick={onFixCovers}><RefreshCw size={16} /> Corrigir capas</button>
+          </>
+        )}
         <button className={tool} onClick={onToggleDark}>{darkMode ? <Sun size={16} /> : <Moon size={16} />} {darkMode ? "Modo claro" : "Modo escuro"}</button>
         <Link href="/definicoes" className={tool}><Settings size={16} /> Definições</Link>
+        {isAdmin && <Link href="/definicoes/atividade" className={tool}><Activity size={16} /> Registo de atividade</Link>}
         {onLogout && <button className={tool} onClick={onLogout}><LogOut size={16} /> {userName ? `Mudar de utilizador (${userName})` : "Sair"}</button>}
       </div>
     </aside>

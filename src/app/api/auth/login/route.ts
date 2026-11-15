@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ADMIN_ID, AUTH_COOKIE, AUTH_MAX_AGE, createSessionToken, getPin, safeEqual } from "@/lib/auth";
+import { deviceFrom, logActivity } from "@/lib/firebase/activity";
 import { clearFailures, getUser, lockedFor, recordFailure, verifyPin } from "@/lib/firebase/users";
 
 export const runtime = "nodejs";
@@ -37,12 +38,14 @@ export async function POST(request: Request) {
     const fresh = !entry || now - entry.first >= WINDOW_MS;
     attempts.set(ip, { count: fresh ? 1 : entry.count + 1, first: fresh ? now : entry.first });
     await recordFailure(uid).catch(() => {});
+    await logActivity({ uid, type: "login_failed", device: deviceFrom(request.headers.get("user-agent")) });
     await new Promise((r) => setTimeout(r, 600));
     return NextResponse.json({ error: "PIN incorreto." }, { status: 401 });
   }
 
   attempts.delete(ip);
   await clearFailures(uid);
+  await logActivity({ uid, type: "login", device: deviceFrom(request.headers.get("user-agent")) });
   const res = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
   res.cookies.set(AUTH_COOKIE, await createSessionToken(uid), {
     httpOnly: true,

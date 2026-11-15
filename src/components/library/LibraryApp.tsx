@@ -72,6 +72,7 @@ export function LibraryApp() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isProtected, setIsProtected] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [exploreTab, setExploreTab] = useState<"series" | "authors" | "collections">("series");
   const searchRef = useRef<HTMLInputElement>(null);
   const lastIndex = useRef<number | null>(null);
@@ -102,6 +103,16 @@ export function LibraryApp() {
   useEffect(() => { if (view === "selected" && selection.list.length === 0) setView("library"); }, [view, selection.list.length]);
   useEffect(() => { if (page > query.totalPages && !query.loading) setPage(query.totalPages); }, [page, query.totalPages, query.loading]);
 
+  // Regista as pesquisas (só o administrador vê o registo), depois de parar de escrever
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) return;
+    const t = setTimeout(() => {
+      fetch("/api/activity", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: term, scope: "library" }), keepalive: true }).catch(() => {});
+    }, 2000);
+    return () => clearTimeout(t);
+  }, [q]);
+
   // ── Arranque ──────────────────────────────────────────────────────────────
   useEffect(() => {
     setMounted(true);
@@ -110,7 +121,7 @@ export function LibraryApp() {
     if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
     const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
     window.addEventListener("beforeinstallprompt", onPrompt);
-    fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); }).catch(() => {});
+    fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); setIsAdmin(d.user?.role === "admin"); }).catch(() => {});
     import("@/lib/cloud-sync").then((m) => m.startCloudSync());
     return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
@@ -512,7 +523,7 @@ export function LibraryApp() {
             open={menuOpen} onClose={() => setMenuOpen(false)} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
             onSync={syncLibraryAndCovers} onCovers={covers.start} syncing={sync.syncing} syncingCovers={covers.state.running}
             canInstall={!!deferredPrompt} isStandalone={isStandalone} onInstall={handleInstall}
-            onLogout={isProtected ? logout : undefined} userName={userName}
+            onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
           />
           <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} />
           {overlays}
@@ -530,7 +541,7 @@ export function LibraryApp() {
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}
           collections={collections.collections} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
           onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls}
-          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined} userName={userName}
+          syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
         />
         <div className="min-w-0 flex-1">
           <header className="sticky top-0 z-40 border-b border-outline-variant bg-background/90 backdrop-blur-xl">

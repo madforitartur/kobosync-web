@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bookmark as BookmarkIcon, Highlighter, List, Maximize, Minimize, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { BookmarkCheck, Bookmark as BookmarkIcon, ChevronDown, Highlighter, List, Maximize, Minimize, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
 import {
-  FONT_FAMILIES, FONT_LABELS, LINE_SPACING, PAGE_ANIMS, TEXT_WIDTH, THEMES,
+  FONT_FAMILIES, FONT_GROUPS, FONT_LABELS, LINE_SPACING, PAGE_ANIMS, TEXT_WIDTH, THEMES,
   type FontFamily, type FontSize, type LineSpacing, type PageAnim, type ReaderSettings, type TextWidth, type Theme,
 } from "@/lib/reader-settings";
 import { HL_COLORS, type Bookmark, type Highlight } from "@/lib/reader-annotations";
@@ -38,6 +39,8 @@ type Props = {
   onGoHit: (h: SearchHit) => void;
   progress: number;
   onClearPosition: () => void;
+  /** Fecha o livro na posição atual e volta à biblioteca. */
+  onShelve: () => void;
 };
 
 const TABS: { id: PanelTab; label: string; Icon: typeof List }[] = [
@@ -49,6 +52,8 @@ const TABS: { id: PanelTab; label: string; Icon: typeof List }[] = [
 ];
 
 export function ReaderPanel(p: Props) {
+  const [fontsOpen, setFontsOpen] = useState(false);
+  const curFont = FONT_FAMILIES.find((f) => f.id === p.settings.fontFamily) ?? FONT_FAMILIES[0];
   const T = THEMES[p.settings.theme];
   const muted = { color: T.accent };
   const chip = (active: boolean): React.CSSProperties => ({
@@ -86,6 +91,15 @@ export function ReaderPanel(p: Props) {
             }}
             onPointerDown={(e) => e.stopPropagation()}
           >
+            <div className="flex items-center justify-between border-b px-4"
+              style={{ minHeight: "3.5rem", borderColor: `${T.accent}30` }}>
+              <span className="font-display-lg text-xl font-bold">Menu</span>
+              <button onClick={p.onClose} aria-label="Fechar menu"
+                className="flex h-9 w-9 items-center justify-center rounded-full border"
+                style={{ borderColor: `${T.accent}40`, color: T.accent }}>
+                <X size={16} />
+              </button>
+            </div>
             <div className="flex items-center gap-1 px-2 pt-2" role="tablist">
               {TABS.map(({ id, label: l, Icon }) => (
                 <button key={id} role="tab" aria-selected={p.tab === id} aria-label={l} title={l}
@@ -95,11 +109,6 @@ export function ReaderPanel(p: Props) {
                   <Icon size={16} />
                 </button>
               ))}
-              <button onClick={p.onClose} aria-label="Fechar painel"
-                className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: `${T.accent}15`, color: T.accent }}>
-                <X size={14} />
-              </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-5 pt-4">
@@ -119,15 +128,30 @@ export function ReaderPanel(p: Props) {
                   </div>
                   <div>
                     {label("Tipo de letra")}
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {FONT_FAMILIES.map((f) => (
-                        <button key={f.id} onClick={() => p.onSettings({ fontFamily: f.id as FontFamily })} aria-pressed={p.settings.fontFamily === f.id}
-                          className="flex h-11 items-center justify-center truncate rounded-xl px-1 text-[13px]"
-                          style={{ ...chip(p.settings.fontFamily === f.id), fontFamily: f.css }}>
-                          {f.label}
-                        </button>
-                      ))}
-                    </div>
+                    <button onClick={() => setFontsOpen((o) => !o)} aria-expanded={fontsOpen} aria-controls="font-list"
+                      className="flex h-11 w-full items-center justify-between rounded-xl px-4 text-[15px]"
+                      style={{ ...chip(false), fontFamily: curFont.css }}>
+                      <span>{curFont.label}</span>
+                      <ChevronDown size={18} className={`transition-transform ${fontsOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {fontsOpen && (
+                      <div id="font-list" className="mt-2 max-h-64 space-y-3 overflow-y-auto rounded-xl p-2" style={{ border: `1px solid ${T.accent}25` }}>
+                        {FONT_GROUPS.map((g) => (
+                          <div key={g.id}>
+                            <p className="mb-1.5 px-1 text-[10px] font-bold uppercase tracking-widest" style={muted}>{g.label}</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {FONT_FAMILIES.filter((f) => f.group === g.id).map((f) => (
+                                <button key={f.id} onClick={() => p.onSettings({ fontFamily: f.id as FontFamily })} aria-pressed={p.settings.fontFamily === f.id}
+                                  className="flex h-10 items-center justify-center truncate rounded-xl px-1 text-[14px]"
+                                  style={{ ...chip(p.settings.fontFamily === f.id), fontFamily: f.css }}>
+                                  {f.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>
@@ -279,6 +303,13 @@ export function ReaderPanel(p: Props) {
                   </ul>
                 </div>
               )}
+            </div>
+            <div className="border-t px-4 py-3" style={{ borderColor: `${T.accent}30` }}>
+              <button onClick={p.onShelve}
+                className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-bold"
+                style={{ backgroundColor: T.text, color: T.page }}>
+                <BookmarkCheck size={18} /> Guardar livro na estante
+              </button>
             </div>
           </motion.div>
         </>

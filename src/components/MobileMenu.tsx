@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Activity,
   Check,
   Download,
   Image as ImageIcon,
@@ -33,6 +34,8 @@ type MobileMenuProps = {
   /** Só existe quando a app está protegida por PIN. */
   onLogout?: () => void;
   userName?: string | null;
+  /** Sincronizar livros/capas só aparece ao administrador. */
+  isAdmin?: boolean;
 };
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
@@ -77,6 +80,7 @@ export function MobileMenu({
   onInstall,
   onLogout,
   userName,
+  isAdmin = true,
 }: MobileMenuProps) {
   const { settings, update } = useReaderSettings();
   const [isFs, setIsFs] = useState(false);
@@ -166,17 +170,21 @@ export function MobileMenu({
               className="flex-1 overflow-y-auto px-4 py-4"
               style={{ paddingBottom: "calc(24px + env(safe-area-inset-bottom))" }}
             >
-              <SectionTitle>Biblioteca</SectionTitle>
-              <div className="space-y-2">
-                <button onClick={act(onSync)} disabled={syncing} className={rowClass}>
-                  <RefreshCw size={18} className={syncing ? "animate-spin" : ""} />
-                  Sincronizar livros
-                </button>
-                <button onClick={act(onCovers)} disabled={syncingCovers} className={rowClass}>
-                  <ImageIcon size={18} className={syncingCovers ? "animate-pulse" : ""} />
-                  Sincronizar capas
-                </button>
-              </div>
+              {isAdmin && (
+                <>
+                  <SectionTitle>Biblioteca</SectionTitle>
+                  <div className="space-y-2">
+                    <button onClick={act(onSync)} disabled={syncing} className={rowClass}>
+                      <RefreshCw size={18} className={syncing ? "animate-spin" : ""} />
+                      Sincronizar livros
+                    </button>
+                    <button onClick={act(onCovers)} disabled={syncingCovers} className={rowClass}>
+                      <ImageIcon size={18} className={syncingCovers ? "animate-pulse" : ""} />
+                      Sincronizar capas
+                    </button>
+                  </div>
+                </>
+              )}
 
               <SectionTitle>Aparência</SectionTitle>
               <button onClick={onToggleDark} className={rowClass} role="switch" aria-checked={darkMode}>
@@ -290,6 +298,12 @@ export function MobileMenu({
                 <Settings size={18} />
                 Definições{userName ? ` · ${userName}` : ""}
               </a>
+              {isAdmin && (
+                <a href="/definicoes/atividade" className={`${rowClass} mt-3`}>
+                  <Activity size={18} />
+                  Registo de atividade
+                </a>
+              )}
               {onLogout && (
                 <button onClick={act(onLogout)} className={`${rowClass} mt-3`}>
                   <LogOut size={18} />
