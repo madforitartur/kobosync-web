@@ -7,7 +7,7 @@ import { markChanged } from "./local-store";
 
 export type FontSize = "xs" | "sm" | "md" | "lg" | "xl";
 export type Theme = "light" | "sepia" | "dark" | "paper" | "eink";
-export type PageAnim = "none" | "fade" | "slide" | "curl";
+export type PageAnim = "none" | "fade" | "slide" | "curl" | "book";
 export type FontFamily =
   | "serif" | "sans" | "dyslexic"
   | "literata" | "merriweather" | "lora" | "garamond" | "crimson" | "sourceserif"
@@ -111,6 +111,7 @@ export const PAGE_ANIMS: { id: PageAnim; label: string; icon: string }[] = [
   { id: "fade",  label: "Fade",    icon: "✦" },
   { id: "slide", label: "Slide",   icon: "⇄" },
   { id: "curl",  label: "Folha",   icon: "📄" },
+  { id: "book",  label: "Livro",   icon: "📖" },
 ];
 
 const isOneOf = <T extends string>(value: unknown, options: readonly T[]): value is T =>

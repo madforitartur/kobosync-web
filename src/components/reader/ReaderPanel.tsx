@@ -16,6 +16,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   touch: boolean;
+  canBook?: boolean;
   tab: PanelTab;
   onTab: (t: PanelTab) => void;
   settings: ReaderSettings;
@@ -197,7 +198,7 @@ export function ReaderPanel(p: Props) {
                   <div>
                     {label("Animação de página")}
                     <div className="flex gap-1.5">
-                      {PAGE_ANIMS.map((a) => (
+                      {PAGE_ANIMS.filter((a) => a.id !== "book" || p.canBook).map((a) => (
                         <button key={a.id} onClick={() => p.onSettings({ pageAnim: a.id as PageAnim })} aria-pressed={p.settings.pageAnim === a.id}
                           className="flex h-10 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl text-[9px] font-bold" style={chip(p.settings.pageAnim === a.id)}>
                           <span className="text-sm leading-none">{a.icon}</span>{a.label}

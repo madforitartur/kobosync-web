@@ -238,7 +238,7 @@ export function MobileMenu({
 
               <p className="mb-1.5 mt-4 px-1 text-xs font-bold text-on-surface-variant">Animação de página</p>
               <div className="flex gap-1.5">
-                {PAGE_ANIMS.map((a) => (
+                {PAGE_ANIMS.filter((a) => a.id !== "book").map((a) => (
                   <button
                     key={a.id}
                     onClick={() => update({ pageAnim: a.id })}
