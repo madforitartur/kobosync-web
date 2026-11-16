@@ -11,6 +11,8 @@ import { FONT_FAMILIES, FONT_PX, LINE_SPACING, TEXT_WIDTH, THEMES, type ReaderSe
 import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@/lib/reader-annotations";
 import { keepAwake } from "@/lib/keep-awake";
 import { PageCurl, snapshotPage } from "@/lib/page-curl";
+import { BOOK_CSS, anchorOffsetBook, bookPages, canShowBook, computeGeo, scrollLeftForOffset, scrollLeftForX, spreadIndex, type BookGeo } from "@/lib/reader-book";
+import { flipBook } from "@/lib/book-flip";
 import { anchorOffset, measureLines, pageTarget, scrollTopForOffset, type Line } from "@/lib/reader-pages";
 import { applyHighlights, bookText, findAll, flashRange, fold, offsetsFromRange, rangeFromOffsets, type Folded } from "@/lib/reader-dom";
 import { useReaderSettings } from "@/hooks/useReaderSettings";
@@ -31,7 +33,7 @@ const READER_CSS = `
 .prose-book a { text-decoration: none !important; color: inherit !important; }
 .prose-book img { max-width: 100%; height: auto; display: block; margin: 0.75em auto; border-radius: 4px; }
 .prose-book mark.kb-hl { cursor: pointer; }
-`;
+${BOOK_CSS}`;
 
 async function tryFs(): Promise<boolean> {
   const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: (o?: { navigationUI?: string }) => Promise<void> };
@@ -96,6 +98,16 @@ export default function ReadPage() {
   const [totalWords, setTotalWords] = useState(0);
   const [pageFrac, setPageFrac] = useState(0.02); // fração do livro que cabe num ecrã
 
+  const [vp, setVp] = useState({ w: 0, h: 0 });
+  const [spread, setSpread] = useState({ cur: 0, total: 1 });
+  const bookMode = settings.pageAnim === "book" && !touch && canShowBook(vp.w, vp.h);
+  const effAnim = settings.pageAnim === "book" && !bookMode ? "curl" : settings.pageAnim;
+  const geo = useMemo<BookGeo | null>(() => (bookMode ? computeGeo(vp.w, vp.h, settings.textWidth) : null), [bookMode, vp.w, vp.h, settings.textWidth]);
+  const bkRef = useRef<BookGeo | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const spacerRef = useRef<HTMLDivElement>(null);
+  const flipRef = useRef<{ destroy: () => void } | null>(null);
+  const lastWheel = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const skipSave = useRef(false);
@@ -122,11 +134,34 @@ export default function ReadPage() {
     if (!linesRef.current) linesRef.current = measureLines(el, root);
     return linesRef.current;
   }, []);
+  /** Nº de duplas do modo Livro; também ajusta a largura rolável para a última dupla ser alcançável. */
+  const pagesOf = useCallback((root: HTMLElement, g: BookGeo) => {
+    const p = bookPages(root, g);
+    if (spacerRef.current) spacerRef.current.style.left = `${p.spreads * g.W - 1}px`;
+    return p;
+  }, []);
+  const scrollPos = useCallback((el: HTMLElement) => (bkRef.current ? el.scrollLeft : el.scrollTop), []);
+  const scrollMax = useCallback((el: HTMLElement): number => {
+    const g = bkRef.current;
+    const root = contentRef.current;
+    if (g && root) return (pagesOf(root, g).spreads - 1) * g.W;
+    return el.scrollHeight - el.clientHeight;
+  }, [pagesOf]);
+  const setPos = useCallback((el: HTMLElement, v: number) => {
+    const g = bkRef.current;
+    if (g) el.scrollLeft = Math.round(Math.max(0, v) / g.W) * g.W;
+    else el.scrollTo({ top: Math.max(0, v), behavior: "auto" });
+  }, []);
+  const locate = useCallback((el: HTMLElement, root: HTMLElement, offset: number): number | null => {
+    const g = bkRef.current;
+    return g ? scrollLeftForOffset(el, root, g, offset) : scrollTopForOffset(el, root, offset);
+  }, []);
   const captureAnchor = useCallback((): { offset: number; textLen: number } | null => {
     const el = scrollRef.current;
     const root = contentRef.current;
     if (!el || !root) return null;
-    const off = anchorOffset(el, root, getLines());
+    const g = bkRef.current;
+    const off = g ? anchorOffsetBook(el, root, g) : anchorOffset(el, root, getLines());
     if (off === null) return null;
     anchorRef.current = off;
     return { offset: off, textLen: textLenRef.current };
@@ -158,6 +193,13 @@ export default function ReadPage() {
 
   // Não deixa o ecrã apagar nem escurecer enquanto se lê
   useEffect(() => keepAwake(), []);
+
+  useEffect(() => {
+    const fn = () => setVp({ w: window.innerWidth, h: window.innerHeight });
+    fn();
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
 
   // Sincroniza posição/anotações com a nuvem também a partir do leitor
   useEffect(() => { import("@/lib/cloud-sync").then((m) => m.startCloudSync()); }, []);
@@ -251,31 +293,33 @@ export default function ReadPage() {
     if (!saved || (saved.ratio !== null && saved.ratio >= FINISHED_RATIO)) return; // livro terminado: recomeça
 
     const apply = () => {
-      const max = el.scrollHeight - el.clientHeight;
+      const max = scrollMax(el);
       linesRef.current = null;
       const root = contentRef.current;
       const sameText = saved.offset !== undefined && (!saved.textLen || Math.abs(saved.textLen - textLenRef.current) < 2);
-      const byOffset = sameText && root ? scrollTopForOffset(el, root, saved.offset as number) : null;
+      const byOffset = sameText && root ? locate(el, root, saved.offset as number) : null;
       if (byOffset !== null) anchorRef.current = saved.offset as number;
-      const top = byOffset ?? (saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : saved.scrollTop);
+      const top = byOffset ?? (saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : bkRef.current ? 0 : saved.scrollTop);
       skipSave.current = true;
-      el.scrollTo({ top, behavior: "auto" });
+      setPos(el, top);
     };
     apply();
     setRestored(true);
     const timers = [150, 600, 1500].map((ms) => window.setTimeout(() => { if (!userMoved.current) apply(); }, ms));
     return () => timers.forEach(clearTimeout);
-  }, [data, bookId]);
+  }, [data, bookId, scrollMax, locate, setPos]);
 
   // ── Capítulo atual (a partir das secções) ──
   const currentChapterFromDom = useCallback((): number => {
     const el = scrollRef.current;
     const root = contentRef.current;
     if (!el || !root) return 0;
-    const top = el.getBoundingClientRect().top + 80;
+    const g = bkRef.current;
+    const er = el.getBoundingClientRect();
     let idx = 0;
     root.querySelectorAll("section[data-ch]").forEach((s, i) => {
-      if (s.getBoundingClientRect().top <= top) idx = i;
+      const r = s.getBoundingClientRect();
+      if (g ? r.left <= er.left + g.PW - 2 : r.top <= er.top + 80) idx = i;
     });
     return idx;
   }, []);
@@ -289,15 +333,26 @@ export default function ReadPage() {
     let raf = 0;
     let anchorT: ReturnType<typeof setTimeout> | null = null;
 
-    const persist = () => savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight, captureAnchor());
+    const persist = () => savePosition(bookId, bookRef.current, scrollPos(el), scrollMax(el), captureAnchor());
     const onScroll = () => {
-      const max = el.scrollHeight - el.clientHeight;
-      if (max > 0) setProgress(Math.round((el.scrollTop / max) * 100));
-      if (el.scrollHeight > 0) setPageFrac(el.clientHeight / el.scrollHeight);
+      const g = bkRef.current;
+      const root = contentRef.current;
+      const max = scrollMax(el);
+      if (max > 0) setProgress(Math.round((scrollPos(el) / max) * 100));
+      if (g && root) {
+        const total = pagesOf(root, g).spreads;
+        setPageFrac(1 / total);
+        setSpread({ cur: spreadIndex(el, g), total });
+      } else if (el.scrollHeight > 0) setPageFrac(el.clientHeight / el.scrollHeight);
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => setChapterIdx(currentChapterFromDom()));
       if (anchorT) clearTimeout(anchorT);
-      anchorT = setTimeout(() => { anchorT = null; if (!skipSave.current) captureAnchor(); }, 100);
+      anchorT = setTimeout(() => {
+        anchorT = null;
+        const g2 = bkRef.current;
+        if (g2 && !busy.current && el.scrollLeft % g2.W !== 0) { el.scrollLeft = Math.round(el.scrollLeft / g2.W) * g2.W; return; } // rolagem acidental (seleção de texto)
+        if (!skipSave.current) captureAnchor();
+      }, 100);
       if (skipSave.current) { skipSave.current = false; return; }
       if (t) clearTimeout(t);
       t = setTimeout(() => { t = null; persist(); }, 500);
@@ -319,16 +374,16 @@ export default function ReadPage() {
       if (anchorT) clearTimeout(anchorT);
       flush();
     };
-  }, [data, bookId, currentChapterFromDom, captureAnchor]);
+  }, [data, bookId, currentChapterFromDom, captureAnchor, scrollMax, scrollPos, pagesOf]);
 
   const saveAndClose = useCallback(() => {
     const el = scrollRef.current;
-    if (el && restoredFor.current === bookId) savePosition(bookId, bookRef.current, el.scrollTop, el.scrollHeight - el.clientHeight, captureAnchor());
+    if (el && restoredFor.current === bookId) savePosition(bookId, bookRef.current, scrollPos(el), scrollMax(el), captureAnchor());
     exitFs();
     // O livro abre muitas vezes num separador novo: sem histórico, vai direto à biblioteca
     if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) router.back();
     else router.push("/");
-  }, [bookId, router, captureAnchor]);
+  }, [bookId, router, captureAnchor, scrollPos, scrollMax]);
 
   const toggleFs = useCallback(() => {
     if (isFsOn()) exitFs();
@@ -342,6 +397,24 @@ export default function ReadPage() {
   }, [getLines]);
 
   // ── Re-ancorar quando o layout muda (rodar ecrã, redimensionar, fonte, largura, imagens) ──
+  const reanchor = useCallback(() => {
+    const el = scrollRef.current;
+    const root = contentRef.current;
+    if (!el || !root || restoredFor.current !== bookId || anchorRef.current === null) return;
+    const g = bkRef.current;
+    if (g) pagesOf(root, g);
+    const y = locate(el, root, anchorRef.current);
+    if (y !== null && Math.abs(y - scrollPos(el)) > 1) { skipSave.current = true; setPos(el, y); }
+  }, [bookId, pagesOf, locate, scrollPos, setPos]);
+
+  // Mudou o modo/geometria/tipo de letra: volta já à mesma passagem (antes de pintar)
+  useLayoutEffect(() => {
+    bkRef.current = geo;
+    linesRef.current = null;
+    flipRef.current?.destroy(); flipRef.current = null; busy.current = false;
+    reanchor();
+  }, [geo, settings.fontSize, settings.fontFamily, settings.lineSpacing, settings.textWidth, reanchor]);
+
   useEffect(() => {
     if (!data) return;
     const el = scrollRef.current;
@@ -351,19 +424,14 @@ export default function ReadPage() {
     const relayout = () => {
       linesRef.current = null;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        if (restoredFor.current !== bookId || anchorRef.current === null) return;
-        const y = scrollTopForOffset(el, root, anchorRef.current);
-        if (y !== null && Math.abs(y - el.scrollTop) > 1) { skipSave.current = true; el.scrollTo({ top: y, behavior: "auto" }); }
-      }, 120);
+      timer = setTimeout(() => { timer = null; reanchor(); }, 120);
     };
     const ro = new ResizeObserver(relayout);
     ro.observe(el);
     ro.observe(root);
     root.addEventListener("load", relayout, true);
     return () => { ro.disconnect(); root.removeEventListener("load", relayout, true); if (timer) clearTimeout(timer); };
-  }, [data, bookId]);
+  }, [data, reanchor]);
 
   const makeCurl = useCallback((dir: "next" | "prev", startY: number, targetTop: number): PageCurl | null => {
     const el = scrollRef.current;
@@ -397,8 +465,30 @@ export default function ReadPage() {
     if (busy.current) return;
     const el = scrollRef.current;
     if (!el) return;
+    const g = bkRef.current;
+    const root = contentRef.current;
+    if (g && root) {
+      const total = pagesOf(root, g).spreads;
+      const from = spreadIndex(el, g);
+      const to = from + (dir === "next" ? 1 : -1);
+      if (to < 0 || to >= total) return;
+      const jump = () => { skipSave.current = false; el.scrollLeft = to * g.W; };
+      const stage = stageRef.current;
+      if (!stage || window.matchMedia("(prefers-reduced-motion: reduce)").matches) { jump(); return; }
+      const f = flipBook({ el, root, stage, geo: g, theme: { bg: T.page, text: T.text, accent: T.accent, bgImage: T.eink ? getComputedStyle(el).backgroundImage : undefined }, from, to, textLen: textLenRef.current, maxSpread: total - 1 });
+      if (!f.ready) { f.destroy(); jump(); return; }
+      busy.current = true;
+      flipRef.current = f;
+      f.run().then(() => {
+        if (flipRef.current !== f) return;
+        jump();
+        // deixa o browser pintar a dupla nova antes de retirar a folha
+        requestAnimationFrame(() => requestAnimationFrame(() => { f.destroy(); if (flipRef.current === f) { flipRef.current = null; busy.current = false; } }));
+      });
+      return;
+    }
     const step = calcStep(el, dir);
-    const anim = settings.pageAnim;
+    const anim = effAnim;
 
     if (anim === "curl" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       if (Math.abs(step) < 2) return;
@@ -419,12 +509,15 @@ export default function ReadPage() {
     }
     if (anim === "none") el.scrollBy({ top: step, behavior: "auto" });
     else el.scrollTo({ top: el.scrollTop + step, behavior: "smooth" });
-  }, [settings.pageAnim, calcStep, makeCurl, finishCurl]);
+  }, [effAnim, calcStep, makeCurl, finishCurl, pagesOf, T]);
 
   const scrollToY = useCallback((y: number) => {
     userMoved.current = true;
-    scrollRef.current?.scrollTo({ top: Math.max(0, y), behavior: "auto" });
-  }, []);
+    const el = scrollRef.current;
+    if (!el) return;
+    if (bkRef.current) { el.scrollLeft = Math.min(Math.max(0, y), scrollMax(el)); el.scrollLeft = Math.round(el.scrollLeft / bkRef.current.W) * bkRef.current.W; }
+    else el.scrollTo({ top: Math.max(0, y), behavior: "auto" });
+  }, [scrollMax]);
 
   const goToOffset = useCallback((start: number, end: number) => {
     const root = contentRef.current;
@@ -432,8 +525,11 @@ export default function ReadPage() {
     if (!root || !el) return;
     const r = rangeFromOffsets(root, start, end);
     if (!r) return;
-    const y = r.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 90;
-    scrollToY(y);
+    const g = bkRef.current;
+    if (g) {
+      const rect = r.getClientRects()[0] ?? r.getBoundingClientRect();
+      scrollToY(scrollLeftForX(el, g, rect.left));
+    } else scrollToY(r.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 90);
     flashRange(root, start, end);
     setShowPanel(false);
   }, [scrollToY]);
@@ -442,7 +538,9 @@ export default function ReadPage() {
     const el = scrollRef.current;
     const sec = contentRef.current?.querySelector(`section[data-ch="${i}"]`) as HTMLElement | null;
     if (!el || !sec) return;
-    scrollToY(sec.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8);
+    const g = bkRef.current;
+    if (g) scrollToY(scrollLeftForX(el, g, (sec.getClientRects()[0] ?? sec.getBoundingClientRect()).left));
+    else scrollToY(sec.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8);
     setShowPanel(false);
   }, [scrollToY]);
 
@@ -450,8 +548,8 @@ export default function ReadPage() {
   const currentRatio = () => {
     const el = scrollRef.current;
     if (!el) return 0;
-    const max = el.scrollHeight - el.clientHeight;
-    return max > 0 ? el.scrollTop / max : 0;
+    const max = scrollMax(el);
+    return max > 0 ? scrollPos(el) / max : 0;
   };
   const bookmarkHere = bookmarks.find((b) => Math.abs(b.ratio - progress / 100) < Math.max(0.004, pageFrac * 0.8));
 
@@ -469,7 +567,7 @@ export default function ReadPage() {
   useEffect(() => { toggleBookmarkRef.current = toggleBookmark; }); // o atalho de teclado usa sempre a versão mais recente
   const goToBookmark = (b: Bookmark) => {
     const el = scrollRef.current;
-    if (el) scrollToY(b.ratio * (el.scrollHeight - el.clientHeight));
+    if (el) scrollToY(b.ratio * scrollMax(el));
     setShowPanel(false);
   };
 
@@ -588,7 +686,7 @@ export default function ReadPage() {
     if (Math.abs(t.clientY - tY.current) > 8) didScroll.current = true;
     const g = curlDrag.current;
     const el = scrollRef.current;
-    if (!g || g.ignore || !el || settings.pageAnim !== "curl") return;
+    if (!g || g.ignore || !el || effAnim !== "curl") return;
     const dx = t.clientX - g.sx;
     const dy = t.clientY - g.sy;
     if (!g.active) {
@@ -610,7 +708,7 @@ export default function ReadPage() {
     g.vx = 0.7 * g.vx + 0.3 * ((t.clientX - g.lastX) / dt);
     g.lastX = t.clientX; g.lastT = now;
     curlRef.current?.set(dx, dy);
-  }, [settings.pageAnim, calcStep, makeCurl]);
+  }, [effAnim, calcStep, makeCurl]);
   const endCurlDrag = useCallback((cancel: boolean) => {
     const g = curlDrag.current;
     const c = curlRef.current;
@@ -656,9 +754,25 @@ export default function ReadPage() {
     if (touch || e.button !== 0) return;
     if (window.getSelection()?.toString()) return;
     if ((e.target as HTMLElement).closest("mark.kb-hl, a, button")) return;
+    const g = bkRef.current;
+    const st = stageRef.current;
+    if (g && st) {
+      const r = st.getBoundingClientRect();
+      if (e.clientX < r.left + g.PW * 0.2) navigate("prev");
+      else if (e.clientX > r.right - g.PW * 0.2) navigate("next");
+      return;
+    }
     const W = window.innerWidth;
     if (e.clientX < W * 0.12) navigate("prev");
     else if (e.clientX > W * 0.88) navigate("next");
+  };
+  const onWheel = (e: React.WheelEvent) => {
+    if (!bkRef.current) return;
+    const d = Math.abs(e.deltaY) > Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+    const now = Date.now();
+    if (Math.abs(d) < 25 || now - lastWheel.current < 700) return;
+    lastWheel.current = now;
+    navigate(d > 0 ? "next" : "prev");
   };
 
   const slideStyle = useMemo((): React.CSSProperties => {
@@ -730,7 +844,7 @@ export default function ReadPage() {
       )}
 
       <ReaderPanel
-        open={showPanel} onClose={() => setShowPanel(false)} touch={touch} tab={tab} onTab={setTab}
+        open={showPanel} onClose={() => setShowPanel(false)} touch={touch} canBook={!touch && canShowBook(vp.w, vp.h)} tab={tab} onTab={setTab}
         settings={settings} onSettings={patchSettings} isFs={isFs} onToggleFs={toggleFs}
         chapters={chapterTitles} currentChapter={chapterIdx} onGoChapter={goToChapter}
         bookmarks={bookmarks} bookmarkedHere={!!bookmarkHere} onToggleBookmark={toggleBookmark} onGoBookmark={goToBookmark}
@@ -762,35 +876,63 @@ export default function ReadPage() {
       )}
 
       {/* texto */}
-      <div
-        ref={scrollRef}
-        className="rdr prose-book h-full w-full overflow-y-auto overscroll-none"
-        style={{
-          backgroundColor: T.page, color: T.text,
-          paddingTop: isFs ? "calc(2.5rem + env(safe-area-inset-top, 0px))" : "2.5rem",
-          paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
-          paddingLeft: width.pad, paddingRight: width.pad,
-          scrollbarWidth: "none", WebkitOverflowScrolling: "touch", touchAction: settings.pageAnim === "curl" ? "pan-y" : undefined,
-          ...(T.eink ? { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.18'/%3E%3C/svg%3E\")" } : {}),
-        } as React.CSSProperties}
-        onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchCancel}
-        onMouseUp={onMouseUp} onClick={onContentClick}
-      >
-        <div style={slideStyle}>
+      <div className={bookMode ? "flex h-full w-full items-center justify-center" : "h-full w-full"} onMouseUp={onMouseUp}>
+        <div
+          ref={stageRef}
+          className="relative"
+          style={bookMode && geo
+            ? { width: geo.W, height: geo.PH, borderRadius: 6, boxShadow: `0 24px 60px rgba(0,0,0,.38), 0 0 0 7px ${T.accent}30, 0 0 0 8px ${T.accent}18` }
+            : { width: "100%", height: "100%" }}
+        >
           <div
-            ref={contentRef}
-            className="select-text"
+            ref={scrollRef}
+            className={`rdr prose-book relative ${bookMode ? "kb-book overflow-hidden" : "h-full w-full overflow-y-auto overscroll-none"}`}
             style={{
-              maxWidth: `${width.ch}ch`, margin: "0 auto",
-              fontSize: FONT_PX[settings.fontSize], lineHeight: LINE_SPACING[settings.lineSpacing].factor, fontFamily: family,
-              ...(T.eink ? ({ fontWeight: 500, textRendering: "geometricPrecision" } as React.CSSProperties) : {}),
-            }}
-          />
-          <div className="mx-auto mt-24 flex max-w-[65ch] flex-col items-center gap-3 border-t py-16" style={{ borderColor: `${T.accent}25` }}>
-            <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
-            <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>Fim</p>
-            {restored && <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>}
+              backgroundColor: T.page, color: T.text,
+              ...(bookMode && geo
+                ? { width: geo.W, height: geo.PH, borderRadius: 6 }
+                : {
+                    paddingTop: isFs ? "calc(2.5rem + env(safe-area-inset-top, 0px))" : "2.5rem",
+                    paddingBottom: "calc(3.5rem + env(safe-area-inset-bottom, 0px))",
+                    paddingLeft: width.pad, paddingRight: width.pad,
+                  }),
+              scrollbarWidth: "none", WebkitOverflowScrolling: "touch", touchAction: effAnim === "curl" ? "pan-y" : undefined,
+              ...(T.eink ? { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23cccccc' opacity='0.18'/%3E%3C/svg%3E\")" } : {}),
+            } as React.CSSProperties}
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} onTouchCancel={onTouchCancel}
+            onWheel={onWheel} onClick={onContentClick}
+          >
+            <div style={slideStyle}>
+              <div
+                ref={contentRef}
+                className={`select-text ${bookMode ? "kb-text" : ""}`}
+                style={{
+                  ...(bookMode && geo
+                    ? { columnCount: 2, columnGap: geo.G, columnFill: "auto", height: geo.TH, width: 2 * geo.TW + geo.G, margin: `${geo.padTop}px ${geo.padX}px 0`, ["--kb-th" as string]: `${geo.TH}px` }
+                    : { maxWidth: `${width.ch}ch`, margin: "0 auto" }),
+                  fontSize: FONT_PX[settings.fontSize], lineHeight: LINE_SPACING[settings.lineSpacing].factor, fontFamily: family,
+                  ...(T.eink ? ({ fontWeight: 500, textRendering: "geometricPrecision" } as React.CSSProperties) : {}),
+                }}
+              />
+              {!bookMode && (
+                <div className="mx-auto mt-24 flex max-w-[65ch] flex-col items-center gap-3 border-t py-16" style={{ borderColor: `${T.accent}25` }}>
+                  <BookOpen size={24} strokeWidth={1.4} color={T.accent} />
+                  <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: T.accent }}>Fim</p>
+                  {restored && <p className="text-[10px]" style={{ color: T.accent }}>Posição restaurada</p>}
+                </div>
+              )}
+            </div>
+            {bookMode && <div ref={spacerRef} aria-hidden className="pointer-events-none absolute top-0 h-px w-px" style={{ left: 0 }} />}
           </div>
+          {bookMode && geo && (
+            <>
+              {/* lombada */}
+              <div aria-hidden className="pointer-events-none absolute inset-y-0 z-10" style={{ left: geo.PW - 20, width: 40, background: "linear-gradient(to right, rgba(0,0,0,0), rgba(0,0,0,.16) 46%, rgba(0,0,0,.30) 50%, rgba(0,0,0,.16) 54%, rgba(0,0,0,0))" }} />
+              {/* números de página */}
+              <span aria-hidden className="pointer-events-none absolute z-10 text-[11px] tabular-nums opacity-70" style={{ left: 0, width: geo.PW, textAlign: "center", bottom: Math.round(geo.padBottom * 0.38), color: T.accent }}>{spread.cur * 2 + 1}</span>
+              <span aria-hidden className="pointer-events-none absolute z-10 text-[11px] tabular-nums opacity-70" style={{ left: geo.PW, width: geo.PW, textAlign: "center", bottom: Math.round(geo.padBottom * 0.38), color: T.accent }}>{spread.cur * 2 + 2}</span>
+            </>
+          )}
         </div>
       </div>
 
