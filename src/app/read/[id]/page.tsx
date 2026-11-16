@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { ArrowLeft, BookOpen, Bookmark as BookmarkIcon, Copy, Loader2, Menu, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Bookmark as BookmarkIcon, Copy, Loader2, Maximize, Menu, Minimize, Trash2 } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
 import { FINISHED_RATIO, clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
@@ -12,6 +12,7 @@ import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@
 import { keepAwake } from "@/lib/keep-awake";
 import { PageCurl, snapshotPage } from "@/lib/page-curl";
 import { BOOK_CSS, anchorOffsetBook, bookPages, canShowBook, computeGeo, scrollLeftForOffset, scrollLeftForX, spreadIndex, type BookGeo } from "@/lib/reader-book";
+import { bookBgStyle } from "@/lib/book-backgrounds";
 import { flipBook } from "@/lib/book-flip";
 import { anchorOffset, measureLines, pageTarget, scrollTopForOffset, type Line } from "@/lib/reader-pages";
 import { applyHighlights, bookText, findAll, flashRange, fold, offsetsFromRange, rangeFromOffsets, type Folded } from "@/lib/reader-dom";
@@ -171,7 +172,7 @@ export default function ReadPage() {
   const fullHtml = useMemo(() => (data ? combineChapters(data.chapters) : ""), [data]);
   const T = THEMES[settings.theme];
 
-  useEffect(() => { autoFs.current = settings.autoFullscreen; }, [settings.autoFullscreen]);
+  useEffect(() => { autoFs.current = settings.autoFullscreen && touch; }, [settings.autoFullscreen, touch]); // no PC nunca abre sozinho em ecrã completo
   useEffect(() => { bookRef.current = book; }, [book]);
 
   useEffect(() => {
@@ -809,6 +810,9 @@ export default function ReadPage() {
   const family = FONT_FAMILIES.find((f) => f.id === settings.fontFamily)?.css;
   const width = TEXT_WIDTH[settings.textWidth];
   const remainingMin = totalWords > 0 ? ((100 - progress) / 100) * (totalWords / WORDS_PER_MIN) : null;
+  const onDarkBg = bookMode && (settings.bookBg === "wood" || settings.bookBg === "dark" || settings.bookBg === "felt");
+  const ctlStyle: React.CSSProperties = onDarkBg ? { backgroundColor: "rgba(0,0,0,.38)", color: "#fff" } : { backgroundColor: `${T.accent}22`, color: T.text };
+  const footColor = bookMode && (settings.bookBg === "wood" || settings.bookBg === "dark" || settings.bookBg === "felt") ? "#ffffffcc" : bookMode && settings.bookBg === "marble" ? "#3a3a40" : T.accent;
   const chapterLabel = chapterTitles[chapterIdx] || (chapterTitles.length > 1 ? `Capítulo ${chapterIdx + 1}` : "");
 
   const popColor = (c: HlColor) => (
@@ -830,14 +834,17 @@ export default function ReadPage() {
 
       {/* PC: botão discreto para abrir o painel */}
       {!touch && (
-        <div className="fixed right-4 top-3 z-40 flex gap-1.5 opacity-60 transition hover:opacity-100">
-          <button onClick={toggleBookmark} aria-label={bookmarkHere ? "Remover marcador" : "Marcar página"} className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: `${T.accent}22`, color: T.text }}>
+        <div className="fixed right-4 top-3 z-40 flex gap-1.5 opacity-70 transition hover:opacity-100">
+          <button onClick={toggleBookmark} aria-label={bookmarkHere ? "Remover marcador" : "Marcar página"} className="flex h-9 w-9 items-center justify-center rounded-full" style={ctlStyle}>
             <BookmarkIcon size={16} fill={bookmarkHere ? "currentColor" : "none"} />
           </button>
-          <button onClick={() => openPanel()} aria-label="Abrir painel de leitura" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: `${T.accent}22`, color: T.text }}>
+          <button onClick={toggleFs} aria-label={isFs ? "Sair do ecrã completo" : "Ecrã completo"} title={isFs ? "Sair do ecrã completo (F)" : "Ecrã completo (F)"} className="flex h-9 w-9 items-center justify-center rounded-full" style={ctlStyle}>
+            {isFs ? <Minimize size={16} /> : <Maximize size={16} />}
+          </button>
+          <button onClick={() => openPanel()} aria-label="Abrir painel de leitura" className="flex h-9 w-9 items-center justify-center rounded-full" style={ctlStyle}>
             <Menu size={16} />
           </button>
-          <button onClick={saveAndClose} aria-label="Voltar à biblioteca" className="flex h-9 w-9 items-center justify-center rounded-full" style={{ backgroundColor: `${T.accent}22`, color: T.text }}>
+          <button onClick={saveAndClose} aria-label="Voltar à biblioteca" className="flex h-9 w-9 items-center justify-center rounded-full" style={ctlStyle}>
             <ArrowLeft size={16} />
           </button>
         </div>
@@ -876,7 +883,7 @@ export default function ReadPage() {
       )}
 
       {/* texto */}
-      <div className={bookMode ? "flex h-full w-full items-center justify-center" : "h-full w-full"} onMouseUp={onMouseUp}>
+      <div className={bookMode ? "flex h-full w-full items-center justify-center" : "h-full w-full"} style={bookMode ? bookBgStyle(settings.bookBg, T.bg) : undefined} onMouseUp={onMouseUp}>
         <div
           ref={stageRef}
           className="relative"
@@ -939,10 +946,10 @@ export default function ReadPage() {
       {/* rodapé: capítulo, tempo restante, progresso */}
       <div
         className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-4 px-4"
-        style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))", paddingTop: "1.5rem", background: `linear-gradient(to top, ${T.bg}cc 40%, ${T.bg}00 100%)` }}
+        style={{ paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom, 0px))", paddingTop: "1.5rem", background: bookMode ? "none" : `linear-gradient(to top, ${T.bg}cc 40%, ${T.bg}00 100%)` }}
       >
-        <span className="min-w-0 truncate text-[10px] font-medium opacity-70" style={{ color: T.accent }}>{chapterLabel || book.author || ""}</span>
-        <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-70" style={{ color: T.accent }}>
+        <span className="min-w-0 truncate text-[10px] font-medium opacity-70" style={{ color: footColor }}>{chapterLabel || book.author || ""}</span>
+        <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-70" style={{ color: footColor }}>
           {remainingMin !== null && progress < 100 ? `faltam ${formatMinutes(remainingMin)} · ` : ""}{progress}%
         </span>
       </div>

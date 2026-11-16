@@ -34,6 +34,7 @@ import { GroupList } from "./GroupList";
 import { KoboDialog } from "./KoboDialog";
 import { SelectionBar } from "./SelectionBar";
 import { SelectionDock } from "./SelectionDock";
+import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
 import { StatusToast } from "./StatusToast";
 import { Toolbar, type ViewMode } from "./Toolbar";
@@ -69,7 +70,7 @@ export function LibraryApp() {
   const [detail, setDetail] = useState<Book | null>(null);
   const [pickerIds, setPickerIds] = useState<string[] | null>(null);
   const [koboOpen, setKoboOpen] = useState(false);
-  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const pwa = useInstall();
   const [isProtected, setIsProtected] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -119,18 +120,14 @@ export function LibraryApp() {
     // Atalhos da app instalada: /?view=reading|series|authors|collections|selected
     const wanted = new URLSearchParams(window.location.search).get("view");
     if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
-    const onPrompt = (e: Event) => { e.preventDefault(); setDeferredPrompt(e as BeforeInstallPromptEvent); };
-    window.addEventListener("beforeinstallprompt", onPrompt);
     fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); setIsAdmin(d.user?.role === "admin"); }).catch(() => {});
     import("@/lib/cloud-sync").then((m) => m.startCloudSync());
-    return () => window.removeEventListener("beforeinstallprompt", onPrompt);
   }, []);
 
   async function handleInstall() {
-    if (!deferredPrompt) return;
-    await deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === "accepted") setDeferredPrompt(null);
+    if ((await pwa.install()) === "unavailable") {
+      window.alert("Para instalar: no Chrome/Edge usa o ícone de instalar na barra de endereços (ou menu ⋮ › Instalar KoboSync). No Safari: Partilhar › Adicionar ao ecrã principal / Dock.");
+    }
   }
 
   async function logout() {
@@ -522,7 +519,7 @@ export function LibraryApp() {
           <MobileMenu
             open={menuOpen} onClose={() => setMenuOpen(false)} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
             onSync={syncLibraryAndCovers} onCovers={covers.start} syncing={sync.syncing} syncingCovers={covers.state.running}
-            canInstall={!!deferredPrompt} isStandalone={isStandalone} onInstall={handleInstall}
+            canInstall={pwa.canInstall} isStandalone={isStandalone} onInstall={handleInstall}
             onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
           />
           <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} />
@@ -540,7 +537,7 @@ export function LibraryApp() {
           view={view} activeCollectionId={activeCollection?.id} onView={go} onOpenCollection={openCollection}
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}
           collections={collections.collections} darkMode={darkMode} onToggleDark={() => setDarkMode((v) => !v)}
-          onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls}
+          onSync={syncLibraryAndCovers} onCovers={covers.start} onFixCovers={sync.migrateCoverUrls} onInstall={pwa.standalone ? undefined : handleInstall}
           syncing={sync.syncing} syncingCovers={covers.state.running} onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
         />
         <div className="min-w-0 flex-1">
@@ -576,10 +573,4 @@ export function LibraryApp() {
       </div>
     </div>
   );
-}
-
-// Tipo (não existe no lib.dom) do evento de instalação PWA
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-  userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }

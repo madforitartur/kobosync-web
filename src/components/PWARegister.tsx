@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect } from "react";
+import { startInstallCapture } from "@/lib/pwa-install";
 
 export function PWARegister() {
   useEffect(() => {
+    startInstallCapture();
     if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
 
     const register = async () => {

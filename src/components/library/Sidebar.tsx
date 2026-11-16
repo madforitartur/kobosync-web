@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Activity, Settings, BookMarked, BookOpen, Check, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
+import { Activity, Settings, BookMarked, BookOpen, Check, Download, FolderOpen, Image as ImageIcon, Library, LogOut, Moon, RefreshCw, Sun, User, Wrench } from "lucide-react";
 import type { Collection } from "@/hooks/useCollections";
 
 export type DesktopView = "library" | "reading" | "series" | "authors" | "collections" | "selected";
@@ -20,12 +20,13 @@ type Props = {
   onFixCovers: () => void;
   syncing: boolean;
   syncingCovers: boolean;
+  onInstall?: () => void;
   onLogout?: () => void;
   userName?: string | null;
   isAdmin?: boolean;
 };
 
-export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onLogout, userName, isAdmin = true }: Props) {
+export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, counts, collections, darkMode, onToggleDark, onSync, onCovers, onFixCovers, syncing, syncingCovers, onInstall, onLogout, userName, isAdmin = true }: Props) {
   const item = (id: DesktopView, label: string, Icon: typeof BookOpen, count?: number) => {
     const active = view === id && !activeCollectionId;
     return (
@@ -80,6 +81,7 @@ export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, co
           </>
         )}
         <button className={tool} onClick={onToggleDark}>{darkMode ? <Sun size={16} /> : <Moon size={16} />} {darkMode ? "Modo claro" : "Modo escuro"}</button>
+        {onInstall && <button className={tool} onClick={onInstall}><Download size={16} /> Instalar aplicação</button>}
         <Link href="/definicoes" className={tool}><Settings size={16} /> Definições</Link>
         {isAdmin && <Link href="/definicoes/atividade" className={tool}><Activity size={16} /> Registo de atividade</Link>}
         {onLogout && <button className={tool} onClick={onLogout}><LogOut size={16} /> {userName ? `Mudar de utilizador (${userName})` : "Sair"}</button>}
