@@ -12,6 +12,8 @@ import { HL_COLORS, type Bookmark, type Highlight } from "@/lib/reader-annotatio
 export type PanelTab = "aa" | "toc" | "marks" | "highlights" | "search";
 export type SearchHit = { start: number; end: number; snippet: string; chapter: string };
 
+import { BOOK_BGS } from "@/lib/book-backgrounds";
+
 type Props = {
   open: boolean;
   onClose: () => void;
@@ -206,6 +208,19 @@ export function ReaderPanel(p: Props) {
                       ))}
                     </div>
                   </div>
+                  {p.canBook && p.settings.pageAnim === "book" && (
+                    <div>
+                      {label("Fundo do livro")}
+                      <div className="flex gap-1.5">
+                        {BOOK_BGS.map((b) => (
+                          <button key={b.id} onClick={() => p.onSettings({ bookBg: b.id })} aria-pressed={p.settings.bookBg === b.id}
+                            className="flex h-14 flex-1 flex-col items-center justify-center gap-1 rounded-xl text-[9px] font-bold" style={chip(p.settings.bookBg === b.id)}>
+                            <span className="h-5 w-5 rounded-full border border-black/20" style={{ background: b.swatch }} />{b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <button onClick={p.onToggleFs} className="flex h-11 w-full items-center justify-between rounded-xl px-4 text-sm font-bold" style={chip(p.isFs)}>
                     <span>{p.isFs ? "Sair do ecrã completo" : "Ecrã completo"}</span>
                     {p.isFs ? <Minimize size={16} /> : <Maximize size={16} />}

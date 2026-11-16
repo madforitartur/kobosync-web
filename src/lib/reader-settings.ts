@@ -15,6 +15,7 @@ export type FontFamily =
   | "bitter" | "baskerville" | "notoserif" | "ptserif" | "spectral" | "vollkorn" | "cormorant" | "alegreya" | "robotoslab"
   | "opensans" | "nunito" | "sourcesans" | "fira" | "worksans";
 
+import type { BookBg } from "./book-backgrounds";
 export type FontGroup = "serif" | "sans" | "easy";
 export type LineSpacing = "compact" | "normal" | "loose";
 export type TextWidth = "narrow" | "normal" | "wide";
@@ -31,6 +32,8 @@ export type ReaderSettings = {
   textWidth: TextWidth;
   /** escurecimento do ecrã em % (0–60), para ler à noite */
   dim: number;
+  /** fundo onde o livro pousa (modo Livro) */
+  bookBg: BookBg;
 };
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -42,6 +45,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   lineSpacing: "normal",
   textWidth: "normal",
   dim: 0,
+  bookBg: "wood",
 };
 
 export const FONT_FAMILIES: { id: FontFamily; label: string; css: string; group: FontGroup }[] = [
@@ -130,6 +134,7 @@ export function loadSettings(): ReaderSettings {
       fontFamily: isOneOf(s.fontFamily, FONT_FAMILIES.map((f) => f.id)) ? s.fontFamily : DEFAULT_SETTINGS.fontFamily,
       lineSpacing: isOneOf(s.lineSpacing, Object.keys(LINE_SPACING) as LineSpacing[]) ? s.lineSpacing : DEFAULT_SETTINGS.lineSpacing,
       textWidth: isOneOf(s.textWidth, Object.keys(TEXT_WIDTH) as TextWidth[]) ? s.textWidth : DEFAULT_SETTINGS.textWidth,
+      bookBg: isOneOf(s.bookBg, ["theme", "wood", "marble", "dark", "felt"] as const) ? s.bookBg : DEFAULT_SETTINGS.bookBg,
       dim: typeof s.dim === "number" ? Math.min(60, Math.max(0, Math.round(s.dim))) : 0,
     };
   } catch {
