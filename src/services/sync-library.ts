@@ -14,6 +14,7 @@
 
 import { getServerConfig } from "@/lib/env";
 import { listDriveEpubs } from "@/lib/google-drive";
+import { allFolderIds } from "@/lib/firebase/drive-folders";
 import { insertNewBooks, countBooksWithoutCover } from "@/lib/firebase/books";
 
 const stripExtension = (name: string) => name.replace(/\.epub$/i, "");
@@ -38,7 +39,7 @@ export async function syncLibrary() {
     clientEmail: config.googleClientEmail,
     privateKey: config.googlePrivateKey,
     sharedDriveId: config.googleSharedDriveId,
-    folderId: config.googleDriveFolderId,
+    folderId: (await allFolderIds(config.googleDriveFolderId)).join(","),
   });
 
   // ── 2. Inserir apenas livros novos no Firestore ──

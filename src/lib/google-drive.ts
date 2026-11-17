@@ -1,6 +1,17 @@
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
+/** Confirma que a conta de serviço vê esta pasta e devolve o nome; lança um erro legível se não. */
+export async function getDriveFolderInfo(clientEmail: string, privateKey: string, id: string): Promise<{ id: string; name: string }> {
+  const token = await getAccessToken(clientEmail, privateKey);
+  const r = await fetch(`${DRIVE_API}/files/${encodeURIComponent(id)}?fields=id,name,mimeType&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
+  if (r.status === 404 || r.status === 403) throw new Error(`Sem acesso a esta pasta. Partilha-a (como Leitor) com ${clientEmail} e tenta de novo.`);
+  if (!r.ok) throw new Error(`O Drive respondeu com erro ${r.status}.`);
+  const d = (await r.json()) as { id: string; name: string; mimeType: string };
+  if (d.mimeType !== "application/vnd.google-apps.folder") throw new Error("Esse link não é de uma pasta.");
+  return { id: d.id, name: d.name };
+}
+
 export interface DriveFile {
   id:            string;
   name:          string;

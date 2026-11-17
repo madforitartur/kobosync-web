@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowLeft, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { Activity, ArrowLeft, FolderPlus, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { logoutAndWipe } from "@/lib/user-session";
 
 type User = { id: string; name: string; role: "admin" | "user" };
@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [editing, setEditing] = useState<{ id: string; name: string; pin: string } | null>(null);
   const [curPin, setCurPin] = useState("");
   const [myPin, setMyPin] = useState("");
+  const [drive, setDrive] = useState<{ folders: { id: string; name: string }[]; envFolders: string[]; serviceEmail: string } | null>(null);
+  const [link, setLink] = useState("");
 
   const load = useCallback(async () => {
     const st = await fetch("/api/auth/status", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
@@ -38,6 +40,8 @@ export default function SettingsPage() {
     if (st?.user?.role === "admin") {
       const d = await fetch("/api/users", { cache: "no-store" }).then((r) => r.json()).catch(() => ({ users: [] }));
       setUsers(d.users ?? []);
+      const dv = await fetch("/api/drive-folders", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      setDrive(dv);
     }
     setLoading(false);
   }, []);
@@ -98,6 +102,36 @@ export default function SettingsPage() {
             <span className="text-sm text-on-surface-variant">Logins, leituras, descargas e pesquisas de cada utilizador.</span>
           </span>
         </Link>
+      )}
+
+      {isAdmin && drive && (
+        <section className="mt-6 rounded-2xl border border-outline-variant p-5">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Pastas do Google Drive</h2>
+          <p className="mt-1 text-sm text-on-surface-variant">Os livros (EPUB) de todas estas pastas aparecem na mesma estante. Partilha cada pasta, como <b>Leitor</b>, com:</p>
+          <p className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-surface-container px-3 py-2 text-xs font-semibold">
+            <span className="break-all">{drive.serviceEmail}</span>
+            <button type="button" className="shrink-0 underline" onClick={() => navigator.clipboard?.writeText(drive.serviceEmail)}>Copiar</button>
+          </p>
+          <ul className="mt-4 space-y-2">
+            {drive.envFolders.map((id) => (
+              <li key={id} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant p-3 text-sm">
+                <span className="min-w-0 truncate"><b>Pasta principal</b> <span className="text-on-surface-variant">({id.slice(0, 8)}…, definida na Vercel)</span></span>
+              </li>
+            ))}
+            {drive.folders.map((f) => (
+              <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant p-3 text-sm">
+                <a className="min-w-0 truncate font-bold text-primary underline-offset-2 hover:underline" href={`https://drive.google.com/drive/folders/${f.id}`} target="_blank" rel="noreferrer">{f.name}</a>
+                <button aria-label={`Remover ${f.name}`} disabled={busy} onClick={() => { if (confirm(`Deixar de sincronizar "${f.name}"? Os livros já importados mantêm-se.`)) run(async () => { await api(`/api/drive-folders?id=${f.id}`, "DELETE"); return "Pasta removida."; }); }} className="rounded-lg p-2 text-error hover:bg-surface-container"><Trash2 size={17} /></button>
+              </li>
+            ))}
+            {drive.envFolders.length + drive.folders.length === 0 && <li className="text-sm text-on-surface-variant">Sem pasta definida: a app procura EPUBs em toda a Drive acessível.</li>}
+          </ul>
+          <form className="mt-4 space-y-2 border-t border-outline-variant pt-4" onSubmit={(e) => { e.preventDefault(); run(async () => { const r = await api("/api/drive-folders", "POST", { link }); setLink(""); return `Pasta "${r.added.name}" adicionada. Volta à biblioteca e carrega em sincronizar.`; }); }}>
+            <p className="flex items-center gap-2 text-sm font-bold text-on-surface-variant"><FolderPlus size={16} /> Adicionar pasta</p>
+            <input className={field} placeholder="https://drive.google.com/drive/folders/…" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Link da pasta do Drive" />
+            <button disabled={busy || link.trim().length < 10} className={`${btn} bg-primary text-on-primary`}><Plus size={16} /> Adicionar</button>
+          </form>
+        </section>
       )}
 
       {isAdmin && (

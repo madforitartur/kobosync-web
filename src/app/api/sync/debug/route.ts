@@ -2,6 +2,7 @@ import { requireAdmin } from "@/lib/admin-guard";
 import { NextResponse } from "next/server";
 import { getServerConfig } from "@/lib/env";
 import { listDriveEpubs } from "@/lib/google-drive";
+import { allFolderIds } from "@/lib/firebase/drive-folders";
 import { getAllBooksCached } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
@@ -17,7 +18,7 @@ export async function GET() {
       clientEmail: config.googleClientEmail,
       privateKey: config.googlePrivateKey,
       sharedDriveId: config.googleSharedDriveId,
-      folderId: config.googleDriveFolderId,
+      folderId: (await allFolderIds(config.googleDriveFolderId)).join(","),
     });
 
     const dbBooks = await getAllBooksCached(true);
