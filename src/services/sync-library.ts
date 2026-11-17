@@ -34,7 +34,7 @@ export async function syncLibrary() {
   const config = getServerConfig();
 
   // ── 1. Listar todos os EPUBs do Drive (recursivo) ──
-  const { files } = await listDriveEpubs({
+  const { files, warnings } = await listDriveEpubs({
     clientEmail: config.googleClientEmail,
     privateKey: config.googlePrivateKey,
     sharedDriveId: config.googleSharedDriveId,
@@ -47,15 +47,17 @@ export async function syncLibrary() {
   // ── 3. Contar livros sem capa (para informar o utilizador) ──
   const withoutCover = await countBooksWithoutCover();
 
+  const warn = warnings.length ? ` Atenção: ${warnings.join(" ")}` : "";
   return {
     found: files.length,
     newBooks: newCount,
     withoutCover,
+    warnings,
     message:
-      newCount > 0
+      (newCount > 0
         ? `${newCount} livro${newCount !== 1 ? "s" : ""} novo${newCount !== 1 ? "s" : ""} adicionado${newCount !== 1 ? "s" : ""}.${withoutCover ? ` ${withoutCover} sem capa — clica em "Capas" para processar.` : ""}`
         : withoutCover
           ? `Sem livros novos. ${withoutCover} sem capa — clica em "Capas" para processar.`
-          : "Biblioteca actualizada.",
+          : "Biblioteca actualizada.") + warn,
   };
 }

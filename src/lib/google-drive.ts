@@ -9,6 +9,19 @@ export interface DriveFile {
   mimeType?:     string;
 }
 
+/**
+ * Aceita um ou vários IDs/links de pastas (separados por vírgula, espaço ou nova linha),
+ * por exemplo "1AbC…, https://drive.google.com/drive/folders/1XyZ…?usp=sharing".
+ */
+export function parseFolderIds(raw?: string | null): string[] {
+  if (!raw) return [];
+  const ids = raw
+    .split(/[\s,;]+/)
+    .map((t) => t.match(/\/folders\/([\w-]+)/)?.[1] ?? t.trim())
+    .filter((t) => /^[\w-]{10,}$/.test(t));
+  return [...new Set(ids)];
+}
+
 interface ListDriveEpubsParams {
   clientEmail:    string;
   privateKey:     string;
@@ -118,15 +131,28 @@ async function listChildren(
  */
 export async function listDriveEpubs(
   params: ListDriveEpubsParams,
-): Promise<{ files: DriveFile[]; token: string }> {
-  const { clientEmail, privateKey, sharedDriveId, folderId } = params;
+): Promise<{ files: DriveFile[]; token: string; warnings: string[] }> {
+  const { clientEmail, privateKey, sharedDriveId } = params;
+  const folderIds = parseFolderIds(params.folderId);
+  const folderId = folderIds.length > 0;
+  const warnings: string[] = [];
   const token = await getAccessToken(clientEmail, privateKey);
 
   const allFiles = new Map<string, DriveFile>(); // dedup por id
   const FOLDER_MIME = "application/vnd.google-apps.folder";
 
   // Fila BFS de pastas a explorar
-  const queue: string[] = folderId ? [folderId] : [];
+  const queue: string[] = [];
+  // Confirma que cada pasta raiz é visível para a conta de serviço (senão a lista vinha vazia sem avisar)
+  for (const id of folderIds) {
+    try {
+      const r = await fetch(`${DRIVE_API}/files/${id}?fields=id,name,mimeType&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) queue.push(id);
+      else warnings.push(`Pasta ${id}: sem acesso (${r.status}) — partilha-a com ${clientEmail}.`);
+    } catch {
+      warnings.push(`Pasta ${id}: não foi possível contactar o Drive.`);
+    }
+  }
 
   // Se não tiver folderId configurado, pesquisa global na drive
   if (!folderId) {
@@ -149,7 +175,7 @@ export async function listDriveEpubs(
 
     const files = Array.from(allFiles.values());
     console.log(`[Drive] Global search: ${files.length} EPUBs`);
-    return { files, token };
+    return { files, token, warnings };
   }
 
   // BFS recursivo — 1 query por pasta (traz TUDO: subpastas + ficheiros)
@@ -189,7 +215,7 @@ export async function listDriveEpubs(
 
   const files = Array.from(allFiles.values());
   console.log(`[Drive] Total: ${files.length} EPUBs in ${depth} levels`);
-  return { files, token };
+  return { files, token, warnings };
 }
 
 /** Download completo de um ficheiro do Drive. */

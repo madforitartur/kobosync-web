@@ -13,7 +13,7 @@ export async function GET() {
   try {
     const config = getServerConfig();
 
-    const { files } = await listDriveEpubs({
+    const { files, warnings } = await listDriveEpubs({
       clientEmail: config.googleClientEmail,
       privateKey: config.googlePrivateKey,
       sharedDriveId: config.googleSharedDriveId,
@@ -26,6 +26,7 @@ export async function GET() {
 
     return NextResponse.json({
       driveTotal: files.length,
+      warnings,
       dbTotal: dbBooks.length,
       newInDrive: newInDrive.length,
       config: {
