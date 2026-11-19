@@ -47,3 +47,24 @@ export async function removeOffline(id: string): Promise<void> {
   await Promise.all([...urls(id), `/read/${id}`].map((u) => cache.delete(u)));
   window.dispatchEvent(new Event(OFFLINE_EVENT));
 }
+
+/**
+ * Guarda as páginas da biblioteca offline (lista, leitor local, conversor) e os seus ficheiros,
+ * para abrirem mesmo sem ligação. Chamar quando o utilizador está online.
+ */
+export async function prepareOfflineShell(): Promise<void> {
+  if (!offlineSupported() || !navigator.onLine) return;
+  const cache = await caches.open(CACHE);
+  for (const path of ["/offline", "/offline/read", "/converter"]) {
+    try {
+      const page = await fetch(path, { headers: { Accept: "text/html" }, credentials: "same-origin" });
+      if (!page.ok || page.redirected) continue;
+      const html = await page.clone().text();
+      await cache.put(path, page);
+      const assets = new Set(html.match(/\/_next\/static\/[^"'\\)\s]+/g) ?? []);
+      await Promise.all([...assets].map((a) => fetch(a).catch(() => null)));
+    } catch {
+      /* melhor esforço */
+    }
+  }
+}

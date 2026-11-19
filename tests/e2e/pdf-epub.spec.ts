@@ -24,7 +24,7 @@ test("converte um PDF em EPUB válido: capítulos, sem cabeçalhos nem números 
   test.setTimeout(120_000);
   const pdf = await makePdf(browser);
   await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: true, user: { id: "admin", name: "Artur", role: "admin" } } }));
-  await page.goto("/definicoes/converter");
+  await page.goto("/converter");
   await page.getByLabel("Escolher PDFs").setInputFiles({ name: "livro_de_teste.pdf", mimeType: "application/pdf", buffer: pdf });
   await expect(page.getByText(/páginas/)).toBeVisible({ timeout: 30_000 });
   await page.getByLabel(/^Autor de/).fill("Ana Autora");
@@ -65,16 +65,33 @@ test("PDF sem texto dá um aviso claro", async ({ page, browser }) => {
   const pdf = await p.pdf({ format: "A5" });
   await p.close();
   await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: true, user: { id: "admin", name: "Artur", role: "admin" } } }));
-  await page.goto("/definicoes/converter");
+  await page.goto("/converter");
   await page.getByLabel("Escolher PDFs").setInputFiles({ name: "scan.pdf", mimeType: "application/pdf", buffer: pdf });
   await expect(page.getByText(/parece um PDF digitalizado/i)).toBeVisible({ timeout: 30_000 });
   await page.getByRole("button", { name: /Converter 1 PDF/ }).click();
   await expect(page.getByRole("alert").filter({ hasText: "digitalizado" })).toBeVisible({ timeout: 30_000 });
 });
 
-test("só o administrador vê o conversor", async ({ page }) => {
+test("qualquer utilizador converte e guarda o EPUB na biblioteca offline, e consegue lê-lo", async ({ page, browser }) => {
+  test.setTimeout(150_000);
+  const pdf = await makePdf(browser);
   await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: true, user: { id: "u1", name: "Ana", role: "user" } } }));
+  await page.goto("/converter");
+  await expect(page.getByText(/Guardar em:/)).toBeVisible();
+  await page.getByLabel("Escolher PDFs").setInputFiles({ name: "livro_de_teste.pdf", mimeType: "application/pdf", buffer: pdf });
+  await expect(page.getByText(/páginas/)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: /Converter 1 PDF/ }).click();
+  await page.getByRole("button", { name: "Guardar na biblioteca offline" }).click({ timeout: 90_000 });
+  await expect(page.getByText("Guardado na biblioteca offline")).toBeVisible();
+
+  await page.goto("/offline");
+  await expect(page.getByRole("link", { name: /Ler Livro de Teste/ })).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("link", { name: /Ler Livro de Teste/ }).click();
+  await expect(page.getByText(/Capítulo 1: O começo/).first()).toBeVisible({ timeout: 20_000 });
+});
+
+test("/definicoes/converter reencaminha para /converter", async ({ page }) => {
+  await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: false } }));
   await page.goto("/definicoes/converter");
-  await expect(page.getByText("Só o administrador pode usar esta página.")).toBeVisible();
-  await expect(page.getByLabel("Escolher PDFs")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/converter$/);
 });
