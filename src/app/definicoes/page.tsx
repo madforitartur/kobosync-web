@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Activity, ArrowLeft, FolderPlus, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
+import { Activity, ArrowLeft, Copy, FolderPlus, KeyRound, Loader2, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserPlus } from "lucide-react";
 import { logoutAndWipe } from "@/lib/user-session";
 
 type User = { id: string; name: string; role: "admin" | "user" };
@@ -30,8 +30,10 @@ export default function SettingsPage() {
   const [editing, setEditing] = useState<{ id: string; name: string; pin: string } | null>(null);
   const [curPin, setCurPin] = useState("");
   const [myPin, setMyPin] = useState("");
-  const [drive, setDrive] = useState<{ folders: { id: string; name: string }[]; envFolders: string[]; serviceEmail: string } | null>(null);
+  const [drive, setDrive] = useState<{ folders: { id: string; name: string; label?: string }[]; envFolders: string[]; serviceEmail: string } | null>(null);
   const [link, setLink] = useState("");
+  const [linkName, setLinkName] = useState("");
+  const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
 
   const load = useCallback(async () => {
     const st = await fetch("/api/auth/status", { cache: "no-store" }).then((r) => r.json()).catch(() => null);
@@ -95,6 +97,16 @@ export default function SettingsPage() {
       )}
 
       {isAdmin && (
+        <Link href="/definicoes/duplicados" className="mt-6 flex items-center gap-3 rounded-2xl border border-outline-variant p-4 hover:bg-surface-container-low">
+          <Copy size={22} className="shrink-0 text-primary" />
+          <span>
+            <span className="block font-bold text-primary">Livros repetidos</span>
+            <span className="text-sm text-on-surface-variant">Vê os livros que aparecem mais de uma vez e escolhe quais manter ou esconder da app.</span>
+          </span>
+        </Link>
+      )}
+
+      {isAdmin && (
         <Link href="/definicoes/atividade" className="mt-6 flex items-center gap-3 rounded-2xl border border-outline-variant p-4 hover:bg-surface-container-low">
           <Activity size={22} className="shrink-0 text-primary" />
           <span>
@@ -113,22 +125,41 @@ export default function SettingsPage() {
             <button type="button" className="shrink-0 underline" onClick={() => navigator.clipboard?.writeText(drive.serviceEmail)}>Copiar</button>
           </p>
           <ul className="mt-4 space-y-2">
-            {drive.envFolders.map((id) => (
-              <li key={id} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant p-3 text-sm">
-                <span className="min-w-0 truncate"><b>Pasta principal</b> <span className="text-on-surface-variant">({id.slice(0, 8)}…, definida na Vercel)</span></span>
-              </li>
-            ))}
-            {drive.folders.map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-3 rounded-xl border border-outline-variant p-3 text-sm">
-                <a className="min-w-0 truncate font-bold text-primary underline-offset-2 hover:underline" href={`https://drive.google.com/drive/folders/${f.id}`} target="_blank" rel="noreferrer">{f.name}</a>
-                <button aria-label={`Remover ${f.name}`} disabled={busy} onClick={() => { if (confirm(`Deixar de sincronizar "${f.name}"? Os livros já importados mantêm-se.`)) run(async () => { await api(`/api/drive-folders?id=${f.id}`, "DELETE"); return "Pasta removida."; }); }} className="rounded-lg p-2 text-error hover:bg-surface-container"><Trash2 size={17} /></button>
-              </li>
-            ))}
+            {[...new Set([...drive.envFolders, ...drive.folders.map((f) => f.id)])].map((id) => {
+              const st = drive.folders.find((f) => f.id === id);
+              const fromEnv = drive.envFolders.includes(id);
+              const shown = st?.label || (fromEnv ? "Pasta principal" : st?.name ?? id);
+              return (
+                <li key={id} className="rounded-xl border border-outline-variant p-3 text-sm">
+                  {renaming?.id === id ? (
+                    <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); run(async () => { await api("/api/drive-folders", "PATCH", { id, label: renaming.label }); setRenaming(null); return "Nome guardado."; }); }}>
+                      <input autoFocus className={field} maxLength={40} placeholder="Nome (ex.: Livros do Zé)" aria-label="Nome da pasta" value={renaming.label} onChange={(e) => setRenaming({ id, label: e.target.value })} />
+                      <button disabled={busy} className={`${btn} bg-primary text-on-primary`}>Guardar</button>
+                      <button type="button" onClick={() => setRenaming(null)} className={`${btn} border border-outline-variant`}>Cancelar</button>
+                    </form>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <a className="block truncate font-bold text-primary underline-offset-2 hover:underline" href={`https://drive.google.com/drive/folders/${id}`} target="_blank" rel="noreferrer">{shown}</a>
+                        <span className="block truncate text-xs text-on-surface-variant">{st?.label && st.name !== st.label ? `Drive: ${st.name} · ` : ""}{fromEnv ? "definida na Vercel" : id.slice(0, 10) + "…"}</span>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button aria-label={`Dar nome a ${shown}`} onClick={() => setRenaming({ id, label: st?.label ?? "" })} className="rounded-lg p-2 hover:bg-surface-container"><Pencil size={17} /></button>
+                        {!fromEnv && st && (
+                          <button aria-label={`Remover ${shown}`} disabled={busy} onClick={() => { if (confirm(`Deixar de sincronizar "${shown}"? Os livros já importados mantêm-se.`)) run(async () => { await api(`/api/drive-folders?id=${id}`, "DELETE"); return "Pasta removida."; }); }} className="rounded-lg p-2 text-error hover:bg-surface-container"><Trash2 size={17} /></button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
             {drive.envFolders.length + drive.folders.length === 0 && <li className="text-sm text-on-surface-variant">Sem pasta definida: a app procura EPUBs em toda a Drive acessível.</li>}
           </ul>
-          <form className="mt-4 space-y-2 border-t border-outline-variant pt-4" onSubmit={(e) => { e.preventDefault(); run(async () => { const r = await api("/api/drive-folders", "POST", { link }); setLink(""); return `Pasta "${r.added.name}" adicionada. Volta à biblioteca e carrega em sincronizar.`; }); }}>
+          <form className="mt-4 space-y-2 border-t border-outline-variant pt-4" onSubmit={(e) => { e.preventDefault(); run(async () => { const r = await api("/api/drive-folders", "POST", { link, label: linkName }); setLink(""); setLinkName(""); return `Pasta "${linkName.trim() || r.added.name}" adicionada. Volta à biblioteca e carrega em sincronizar.`; }); }}>
             <p className="flex items-center gap-2 text-sm font-bold text-on-surface-variant"><FolderPlus size={16} /> Adicionar pasta</p>
             <input className={field} placeholder="https://drive.google.com/drive/folders/…" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Link da pasta do Drive" />
+            <input className={field} maxLength={40} placeholder="Nome para a reconheceres (opcional)" value={linkName} onChange={(e) => setLinkName(e.target.value)} aria-label="Nome da nova pasta" />
             <button disabled={busy || link.trim().length < 10} className={`${btn} bg-primary text-on-primary`}><Plus size={16} /> Adicionar</button>
           </form>
         </section>

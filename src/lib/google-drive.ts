@@ -18,6 +18,8 @@ export interface DriveFile {
   size?:         string;
   modifiedTime?: string;
   mimeType?:     string;
+  /** Pasta raiz configurada de onde o ficheiro veio. */
+  root?:         string;
 }
 
 /**
@@ -154,11 +156,12 @@ export async function listDriveEpubs(
 
   // Fila BFS de pastas a explorar
   const queue: string[] = [];
+  const rootOf = new Map<string, string>(); // pasta → pasta raiz
   // Confirma que cada pasta raiz é visível para a conta de serviço (senão a lista vinha vazia sem avisar)
   for (const id of folderIds) {
     try {
       const r = await fetch(`${DRIVE_API}/files/${id}?fields=id,name,mimeType&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) queue.push(id);
+      if (r.ok) { queue.push(id); rootOf.set(id, id); }
       else warnings.push(`Pasta ${id}: sem acesso (${r.status}) — partilha-a com ${clientEmail}.`);
     } catch {
       warnings.push(`Pasta ${id}: não foi possível contactar o Drive.`);
@@ -211,8 +214,9 @@ export async function listDriveEpubs(
           for (const item of all) {
             if (item.mimeType === FOLDER_MIME) {
               queue.push(item.id);
+              rootOf.set(item.id, rootOf.get(parentId) ?? parentId);
             } else if (item.name.toLowerCase().endsWith(".epub") && !allFiles.has(item.id)) {
-              allFiles.set(item.id, item);
+              allFiles.set(item.id, { ...item, root: rootOf.get(parentId) ?? parentId });
             }
           }
         } catch (err) {

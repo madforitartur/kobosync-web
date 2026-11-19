@@ -25,7 +25,7 @@ export async function GET() {
       .map(([bookId, p]) => ({ bookId, progress: Math.round((p.ratio ?? 0) * 100), lastRead: p.timestamp ?? 0 }));
   });
   const ids = [...new Set(reading.flat().map((r) => r.bookId))].slice(0, 200);
-  const titles = new Map((ids.length ? await listBooksByIds(ids) : []).map((b) => [b.id, b.title]));
+  const titles = new Map((ids.length ? await listBooksByIds(ids, { includeHidden: true }) : []).map((b) => [b.id, b.title]));
 
   const summary = users.map((u, i) => {
     const mine = events.filter((e) => e.uid === u.id);
