@@ -70,3 +70,26 @@ test("definições: dar nome a uma pasta do Drive", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Livros do Zé" })).toBeVisible();
   await expect(page.getByText(/Drive: Pasta sem graça/)).toBeVisible();
 });
+
+test("selecionar as mais recentes de cada grupo e esconder de uma vez", async ({ page }) => {
+  const b = (id: string, title: string, created: string, size = 1000) => ({ id, title, author: "A", filesize: size, created_at: created, cover_url: null, hidden: false, dup_ok: false, folder: null });
+  const groups = [
+    { key: "1", books: [b("n1", "Livro X", "2026-03-01"), b("o1", "Livro X", "2026-01-01"), b("m1", "Livro X", "2026-02-01")] },
+    { key: "2", books: [b("p1", "Livro Y", "2026-05-01", 500), b("p2", "Livro Y", "2026-05-01", 900)] }, // empate: fica o maior
+  ];
+  const posted: { action?: string; ids?: string[] } = {};
+  await page.route("**/api/duplicates", async (r) => {
+    if (r.request().method() === "POST") { Object.assign(posted, r.request().postDataJSON()); return r.fulfill({ json: { changed: 3 } }); }
+    return r.fulfill({ json: { groups, hidden: [], total: 5 } });
+  });
+  await page.goto("/definicoes/duplicados");
+  await page.getByRole("button", { name: "Selecionar as mais recentes" }).click();
+  await expect(page.getByText("3 selecionados")).toBeVisible();
+  await expect(page.getByLabel("Selecionar Livro X para esconder").nth(1)).not.toBeChecked(); // o mais antigo (o1) fica
+  await page.getByLabel("Selecionar Livro X para esconder").nth(0).uncheck(); // posso desmarcar à mão
+  await expect(page.getByText("2 selecionados")).toBeVisible();
+  page.on("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Esconder selecionados" }).click();
+  await expect.poll(() => posted.action).toBe("hide");
+  expect([...(posted.ids ?? [])].sort()).toEqual(["m1", "p1"]);
+});
