@@ -1,8 +1,9 @@
-// KoboSync Service Worker (v3)
+// KoboSync Service Worker (v4)
 // - Páginas: rede primeiro; offline usa a última versão guardada.
 // - Capas: cache primeiro (o URL leva ?v=, por isso são imutáveis).
 // - Biblioteca (/api/books, facetas): rede primeiro com cópia local para abrir sem ligação.
 // - Livros "guardados para offline": /api/books/<id>[/content] e a página /read/<id> ficam na cache "kobosync-offline".
+// - Biblioteca offline local (/offline, /offline/read, /converter): páginas guardadas na cache "kobosync-offline" para abrir sem ligação.
 const STATIC = 'kobosync-static-v3';
 const COVERS = 'kobosync-covers-v3';
 const API = 'kobosync-api-v3';

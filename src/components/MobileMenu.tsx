@@ -6,6 +6,8 @@ import {
   Activity,
   Check,
   Download,
+  FileOutput,
+  HardDrive,
   Image as ImageIcon,
   LogOut,
   Maximize,
@@ -294,6 +296,15 @@ export function MobileMenu({
                   )}
                 </>
               )}
+              <SectionTitle>Offline e conversão</SectionTitle>
+              <a href="/offline" className={rowClass}>
+                <HardDrive size={18} />
+                Biblioteca offline
+              </a>
+              <a href="/converter" className={`${rowClass} mt-3`}>
+                <FileOutput size={18} />
+                Converter PDF em EPUB
+              </a>
               <a href="/definicoes" className={`${rowClass} mt-3`}>
                 <Settings size={18} />
                 Definições{userName ? ` · ${userName}` : ""}
