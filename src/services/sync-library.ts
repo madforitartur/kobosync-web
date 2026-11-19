@@ -15,7 +15,7 @@
 import { getServerConfig } from "@/lib/env";
 import { listDriveEpubs } from "@/lib/google-drive";
 import { allFolderIds } from "@/lib/firebase/drive-folders";
-import { insertNewBooks, countBooksWithoutCover } from "@/lib/firebase/books";
+import { insertNewBooks, countBooksWithoutCover, getAllBooksCached, patchBooks } from "@/lib/firebase/books";
 
 const stripExtension = (name: string) => name.replace(/\.epub$/i, "");
 
@@ -44,6 +44,11 @@ export async function syncLibrary() {
 
   // ── 2. Inserir apenas livros novos no Firestore ──
   const newCount = await insertNewBooks(files, basicMetadataFromFilename);
+
+  // Livros já existentes que ainda não sabem de que pasta vieram (para distinguir origens nos repetidos)
+  const rootOf = new Map(files.filter((f) => f.root).map((f) => [f.id, f.root as string]));
+  const missing = (await getAllBooksCached(true)).filter((b) => b.drive_file_id && !b.drive_root && rootOf.has(b.drive_file_id));
+  if (missing.length) await patchBooks(missing.map((b) => ({ id: b.id, drive_root: rootOf.get(b.drive_file_id as string) as string })));
 
   // ── 3. Contar livros sem capa (para informar o utilizador) ──
   const withoutCover = await countBooksWithoutCover();

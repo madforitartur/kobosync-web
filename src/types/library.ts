@@ -49,5 +49,11 @@ export type Book = {
   modified_at: string | null;
   created_at: string | null;
   updated_at: string | null;
+  /** Pasta raiz do Drive de onde veio (para distinguir origens). */
+  drive_root?: string | null;
+  /** Escondido pelo administrador (repetido): não aparece na app. */
+  hidden?: boolean;
+  /** O administrador decidiu manter este livro apesar de parecer repetido. */
+  dup_ok?: boolean;
 };
 

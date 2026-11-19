@@ -70,6 +70,11 @@ async function getLoaded(forceRefresh = false): Promise<Loaded> {
   return inflight;
 }
 
+/** Livros visíveis na app (sem os escondidos pelo administrador). */
+async function getVisible(): Promise<Book[]> {
+  return (await getAllBooksCached()).filter((b) => !b.hidden);
+}
+
 /** Devolve todos os livros (cache de 60s por instância). */
 export async function getAllBooksCached(forceRefresh = false): Promise<Book[]> {
   return (await getLoaded(forceRefresh)).books;
@@ -164,6 +169,8 @@ export type BookQuery = {
   exclude?: string[];
   from?: number;
   to?: number;
+  /** só o administrador: inclui os livros escondidos */
+  includeHidden?: boolean;
 };
 
 const collator = new Intl.Collator("pt", { sensitivity: "base", numeric: true });
@@ -203,7 +210,7 @@ function sortBooks(books: Book[], sort: SortKey, tokens: string[]): Book[] {
 }
 
 export async function queryBooks(query: BookQuery): Promise<{ books: Book[]; total: number }> {
-  let list = await getAllBooksCached();
+  let list = query.includeHidden ? await getAllBooksCached() : await getVisible();
   if (query.ids) {
     const wanted = new Set(query.ids);
     list = list.filter((b) => wanted.has(b.id));
@@ -253,7 +260,7 @@ function groupBy(books: Book[], pick: (b: Book) => string | null): Group[] {
 }
 
 export async function getFacets(): Promise<{ authors: Group[]; series: Group[]; languages: Group[] }> {
-  const all = await getAllBooksCached();
+  const all = await getVisible();
   return {
     authors: groupBy(all, (b) => b.author),
     series: groupBy(all, (b) => b.series),
@@ -261,10 +268,10 @@ export async function getFacets(): Promise<{ authors: Group[]; series: Group[]; 
   };
 }
 
-export async function listBooksByIds(ids: string[]): Promise<Book[]> {
+export async function listBooksByIds(ids: string[], opts: { includeHidden?: boolean } = {}): Promise<Book[]> {
   if (ids.length === 0) return [];
   const wanted = new Set(ids);
-  return (await getAllBooksCached()).filter((b) => wanted.has(b.id));
+  return (opts.includeHidden ? await getAllBooksCached() : await getVisible()).filter((b) => wanted.has(b.id));
 }
 
 export async function getBookById(id: string): Promise<Book | null> {
@@ -279,11 +286,11 @@ function uniqueSorted(values: Array<string | null>): string[] {
 }
 
 export async function listAuthors(): Promise<string[]> {
-  return uniqueSorted((await getAllBooksCached()).map((b) => b.author));
+  return uniqueSorted((await getVisible()).map((b) => b.author));
 }
 
 export async function listSeries(): Promise<string[]> {
-  return uniqueSorted((await getAllBooksCached()).map((b) => b.series));
+  return uniqueSorted((await getVisible()).map((b) => b.series));
 }
 
 // ── Escrita ────────────────────────────────────────────────────────────────
@@ -293,7 +300,7 @@ export async function listSeries(): Promise<string[]> {
  * Custo: ~12 leituras + ~12 escritas para toda a biblioteca.
  */
 export async function insertNewBooks(
-  files: Array<{ id: string; name: string; size?: string; modifiedTime?: string }>,
+  files: Array<{ id: string; name: string; size?: string; modifiedTime?: string; root?: string }>,
   basicMetadataFromFilename: (name: string) => { title: string; author: string | null },
 ): Promise<number> {
   const db = getDb();
@@ -321,6 +328,7 @@ export async function insertNewBooks(
         epub_url: null,
         filesize: f.size ? Number(f.size) : null,
         modified_at: f.modifiedTime ?? null,
+        drive_root: f.root ?? null,
         created_at: now,
         updated_at: now,
       };
@@ -357,6 +365,9 @@ export async function insertNewBooks(
 
 export type BookPatch = {
   id: string;
+  hidden?: boolean;
+  dup_ok?: boolean;
+  drive_root?: string | null;
   cover_url?: string | null;
   cover_missing?: boolean;
   cover_failed?: boolean;
@@ -391,6 +402,9 @@ export async function patchBooks(patches: BookPatch[]): Promise<void> {
         if (patch.cover_url !== undefined) next.cover_url = patch.cover_url;
         if (patch.cover_missing !== undefined) next.cover_missing = patch.cover_missing;
         if (patch.cover_failed !== undefined) next.cover_failed = patch.cover_failed;
+        if (patch.hidden !== undefined) { if (patch.hidden) next.hidden = true; else delete next.hidden; }
+        if (patch.dup_ok !== undefined) { if (patch.dup_ok) next.dup_ok = true; else delete next.dup_ok; }
+        if (patch.drive_root !== undefined) next.drive_root = patch.drive_root;
         return next;
       });
       tx.set(ref, { books });

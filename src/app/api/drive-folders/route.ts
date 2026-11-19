@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-guard";
 import { getServerConfig } from "@/lib/env";
 import { getDriveFolderInfo, parseFolderIds } from "@/lib/google-drive";
-import { addStoredFolder, listStoredFolders, removeStoredFolder } from "@/lib/firebase/drive-folders";
+import { addStoredFolder, cleanLabel, listStoredFolders, removeStoredFolder, renameStoredFolder } from "@/lib/firebase/drive-folders";
 
 export const runtime = "nodejs";
 const NO_STORE = { "Cache-Control": "no-store" };
@@ -17,6 +17,26 @@ export async function GET() {
   );
 }
 
+/** Dá (ou muda) o nome de uma pasta. Para a pasta principal (variável de ambiente) cria o registo só com o nome. */
+export async function PATCH(request: NextRequest) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+  const body = await request.json().catch(() => ({}));
+  const id = parseFolderIds(typeof body?.id === "string" ? body.id : "")[0];
+  if (!id) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
+  const label = cleanLabel(body?.label);
+  const cfg = getServerConfig();
+  const stored = await listStoredFolders();
+  if (!stored.some((f) => f.id === id)) {
+    if (!parseFolderIds(cfg.googleDriveFolderId).includes(id)) return NextResponse.json({ error: "Pasta desconhecida." }, { status: 404 });
+    if (!label) return NextResponse.json({ folders: stored }, { headers: NO_STORE });
+    const info = await getDriveFolderInfo(cfg.googleClientEmail, cfg.googlePrivateKey, id).catch(() => ({ id, name: id }));
+    await addStoredFolder({ ...info, label });
+    return NextResponse.json({ folders: await listStoredFolders() }, { headers: NO_STORE });
+  }
+  return NextResponse.json({ folders: await renameStoredFolder(id, label) }, { headers: NO_STORE });
+}
+
 export async function POST(request: NextRequest) {
   const denied = await requireAdmin();
   if (denied) return denied;
@@ -26,7 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     const cfg = getServerConfig();
     const info = await getDriveFolderInfo(cfg.googleClientEmail, cfg.googlePrivateKey, id);
-    const folders = await addStoredFolder(info);
+    const folders = await addStoredFolder({ ...info, label: body?.label });
     return NextResponse.json({ folders, added: info }, { headers: NO_STORE });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Erro" }, { status: 400 });
