@@ -135,7 +135,7 @@ export function BookShelf({ children, bookWidth, gap = 16 }: Props) {
           <div key={r} className="kb-shelf-row">
             <div className="flex items-end" style={{ gap: gap + 6 }}>
               {row.map((c, i) => {
-                const depth = 18 + ((r * 7 + i * 5) % 5) * 4; // espessura diferente por livro (18–34px)
+                const depth = 10 + ((r * 7 + i * 5) % 5) * 2; // espessura diferente por livro (10–18px)
                 return <ShelfBook key={i} width={bookWidth} depth={depth}>{c}</ShelfBook>;
               })}
             </div>
@@ -155,8 +155,8 @@ const SHELF_CSS = `
     linear-gradient(180deg, var(--w1), var(--w2));
   box-shadow: inset 0 0 40px rgba(0,0,0,.55), inset 0 2px 0 rgba(255,255,255,.05);
 }
-.kb-shelf-row { position: relative; padding-top: 26px; }
-.kb-shelf-row > .flex { position: relative; z-index: 1; padding: 0 10px; min-height: 120px; }
+.kb-shelf-row { position: relative; padding-top: 46px; } /* espaço para o livro selecionado subir */
+.kb-shelf-row > .flex { position: relative; z-index: 1; padding: 0 10px; min-height: 120px; margin-bottom: -3px; } /* o livro pousa ligeiramente atrás da tábua */
 .kb-plank {
   position: relative; z-index: 2; height: 18px; margin: 0 -24px;
   background:
@@ -167,7 +167,7 @@ const SHELF_CSS = `
 }
 
 /* Livro em 3D: capa à frente, lombada (na cor da capa) à esquerda e folhas à direita */
-.kb-shelf-book { perspective: 800px; position: relative; }
+.kb-shelf-book { perspective: 900px; perspective-origin: 50% 100%; position: relative; } /* base do livro fica sempre na tábua */
 .kb-shelf-book::before { /* sombra projetada na parede, atrás do livro */
   content: ""; position: absolute; z-index: -1; left: 14%; right: -16%; top: 4%; bottom: 2px;
   background: rgba(0,0,0,.55); filter: blur(9px); border-radius: 4px; transform: translate(10px, 2px);
@@ -180,21 +180,20 @@ const SHELF_CSS = `
 }
 .kb-3d {
   position: relative; transform-style: preserve-3d; transform-origin: 50% 100%;
-  transform: rotateY(30deg); transition: transform .25s ease;
+  transform: rotateY(16deg); transition: transform .25s ease;
 }
-.kb-shelf-book:hover .kb-3d, .kb-shelf-book:focus-within .kb-3d { transform: translateY(-6px) rotateY(14deg); }
+.kb-shelf-book:hover .kb-3d, .kb-shelf-book:focus-within .kb-3d { transform: translateY(-5px) rotateY(8deg); }
 /* selecionado: levanta da base, a sombra do tabuleiro fica visível por baixo */
-.kb-shelf-book:has([data-selected="true"]) .kb-3d { transform: translateY(-24px) rotateY(14deg); }
-.kb-shelf-book:has([data-selected="true"])::before { transform: translate(18px, 14px); opacity: .6; filter: blur(12px); }
+.kb-shelf-book:has([data-selected="true"]) .kb-3d { transform: translateY(-14px) rotateY(8deg); }
+.kb-shelf-book:has([data-selected="true"])::before { transform: translate(12px, 9px); opacity: .6; filter: blur(10px); }
 .kb-shelf-book:has([data-selected="true"])::after { opacity: .95; transform: scale(1.08); }
-.kb-3d > :not(i) { box-shadow: inset 2px 0 3px rgba(255,255,255,.18), inset -2px 0 4px rgba(0,0,0,.25); border-radius: 2px 4px 4px 2px; }
+.kb-3d > :not(i) { box-shadow: inset 2px 0 3px rgba(255,255,255,.18), inset -2px 0 4px rgba(0,0,0,.25); border-radius: 4px 6px 6px 4px / 4px 6px 6px 4px; }
 .kb-spine, .kb-pages { position: absolute; top: 0; bottom: 0; width: var(--d); display: block; }
 .kb-spine {
-  left: 0; transform-origin: left center; transform: rotateY(90deg);
+  left: 0; transform-origin: left center; transform: rotateY(90deg); border-radius: 4px;
   background:
-    linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,0) 35%, rgba(0,0,0,.30)),
-    linear-gradient(180deg, rgb(var(--sc)), color-mix(in srgb, rgb(var(--sc)) 70%, black));
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+    linear-gradient(90deg, rgba(0,0,0,.38), rgba(255,255,255,.16) 40%, rgba(0,0,0,.34)), /* sombreado de superfície arredondada */
+    linear-gradient(180deg, rgb(var(--sc)), color-mix(in srgb, rgb(var(--sc)) 72%, black));
 }
 .kb-spine::before, .kb-spine::after { /* filetes decorativos da lombada */
   content: ""; position: absolute; left: 0; right: 0; height: 2px; background: rgba(255,255,255,.35);
