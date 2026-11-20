@@ -1,18 +1,10 @@
 "use client";
 
 import { Children, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useStored } from "@/hooks/useStored";
+import { SHELF_THEMES, type ThemeId, shelfThemeById } from "@/lib/shelf-theme";
 
-type Props = { children: ReactNode; bookWidth: number; gap?: number };
+type Props = { children: ReactNode; bookWidth: number; gap?: number; themeId: ThemeId; onTheme: (id: ThemeId) => void };
 
-/** Madeiras disponíveis (cores da parede de fundo, da tábua e do realce). */
-export const SHELF_THEMES = [
-  { id: "carvalho", name: "Carvalho", wall: ["#8a6a4b", "#6b4f37"], plank: ["#e3b982", "#c99a5f", "#a07040"], top: "#f3d3a2", swatch: "#d9ab72" },
-  { id: "nogueira", name: "Nogueira", wall: ["#4a3427", "#35251b"], plank: ["#c58f55", "#a8743f", "#7a4f27"], top: "#e0b27c", swatch: "#8a5a30" },
-  { id: "mogno", name: "Mogno", wall: ["#4a1f1a", "#2f130f"], plank: ["#a2492f", "#7f3322", "#55210f"], top: "#c9704f", swatch: "#7f3322" },
-  { id: "ebano", name: "Ébano", wall: ["#26262b", "#141417"], plank: ["#4a4a52", "#35353b", "#1d1d21"], top: "#6a6a74", swatch: "#2a2a2f" },
-] as const;
-type ThemeId = (typeof SHELF_THEMES)[number]["id"];
 
 const colorCache = new Map<string, string>();
 
@@ -92,11 +84,10 @@ function ShelfBook({ width, depth, children }: { width: number; depth: number; c
  * Estante: os livros (em 3D) ficam em pé, encostados à parede, e pousam em tábuas de madeira.
  * O número de livros por prateleira ajusta-se à largura disponível.
  */
-export function BookShelf({ children, bookWidth, gap = 16 }: Props) {
+export function BookShelf({ children, bookWidth, gap = 16, themeId, onTheme }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [themeId, setThemeId] = useStored<ThemeId>("kobosync:shelf-theme", "nogueira");
-  const theme = SHELF_THEMES.find((t) => t.id === themeId) ?? SHELF_THEMES[1];
+  const theme = shelfThemeById(themeId);
 
   useEffect(() => {
     const el = ref.current;
@@ -125,7 +116,7 @@ export function BookShelf({ children, bookWidth, gap = 16 }: Props) {
       <div role="group" aria-label="Madeira da estante" className="mb-2 flex items-center justify-end gap-1.5 text-xs text-on-surface-variant">
         <span className="mr-1 font-semibold">Madeira</span>
         {SHELF_THEMES.map((t) => (
-          <button key={t.id} onClick={() => setThemeId(t.id)} aria-label={`Madeira ${t.name}`} aria-pressed={t.id === theme.id} title={t.name}
+          <button key={t.id} onClick={() => onTheme(t.id)} aria-label={`Madeira ${t.name}`} aria-pressed={t.id === theme.id} title={t.name}
             className={`h-5 w-5 rounded-full border-2 ${t.id === theme.id ? "border-primary ring-2 ring-primary/30" : "border-outline-variant"}`} style={{ background: t.swatch }} />
         ))}
       </div>
@@ -135,7 +126,7 @@ export function BookShelf({ children, bookWidth, gap = 16 }: Props) {
           <div key={r} className="kb-shelf-row">
             <div className="flex items-end" style={{ gap: gap + 6 }}>
               {row.map((c, i) => {
-                const depth = 10 + ((r * 7 + i * 5) % 5) * 2; // espessura diferente por livro (10–18px)
+                const depth = 22; // espessura da lombada (px)
                 return <ShelfBook key={i} width={bookWidth} depth={depth}>{c}</ShelfBook>;
               })}
             </div>
@@ -180,11 +171,11 @@ const SHELF_CSS = `
 }
 .kb-3d {
   position: relative; transform-style: preserve-3d; transform-origin: 50% 100%;
-  transform: rotateY(16deg); transition: transform .25s ease;
+  transform: rotateY(22deg); transition: transform .25s ease;
 }
 .kb-shelf-book:hover .kb-3d, .kb-shelf-book:focus-within .kb-3d { transform: translateY(-5px) rotateY(8deg); }
 /* selecionado: levanta da base, a sombra do tabuleiro fica visível por baixo */
-.kb-shelf-book:has([data-selected="true"]) .kb-3d { transform: translateY(-14px) rotateY(8deg); }
+.kb-shelf-book:has([data-selected="true"]) .kb-3d { transform: translateY(-18px) rotateY(8deg); }
 .kb-shelf-book:has([data-selected="true"])::before { transform: translate(12px, 9px); opacity: .6; filter: blur(10px); }
 .kb-shelf-book:has([data-selected="true"])::after { opacity: .95; transform: scale(1.08); }
 .kb-3d > :not(i) { box-shadow: inset 2px 0 3px rgba(255,255,255,.18), inset -2px 0 4px rgba(0,0,0,.25); border-radius: 4px 6px 6px 4px / 4px 6px 6px 4px; }

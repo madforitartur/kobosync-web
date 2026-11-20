@@ -35,6 +35,7 @@ import { KoboDialog } from "./KoboDialog";
 import { SelectionBar } from "./SelectionBar";
 import { ShareDialog } from "./ShareDialog";
 import { BookShelf } from "./BookShelf";
+import { type ThemeId, shelfThemeById, wallBackground } from "@/lib/shelf-theme";
 import { SelectionDock } from "./SelectionDock";
 import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
@@ -62,6 +63,7 @@ export function LibraryApp() {
   const [sort, setSort] = useState<SortKey>("title");
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [page, setPage] = useState(1);
+  const [shelfThemeId, setShelfThemeId] = useStored<ThemeId>("kobosync:shelf-theme", "nogueira");
   const [viewMode, setViewMode] = useStored<ViewMode>("kobosync:view-mode", "grid", "viewMode");
   const [density, setDensity] = useStored<number>("kobosync:density", 1, "density");
   const [selectMode, setSelectMode] = useState(false);
@@ -95,6 +97,11 @@ export function LibraryApp() {
   const activeCollection = filters.collectionId ? collections.collections.find((c) => c.id === filters.collectionId) : undefined;
   const onlyIds = view === "selected" ? selection.list : activeCollection ? activeCollection.bookIds : null;
   const listing = view === "library" || view === "selected";
+  const shelfBg = viewMode === "shelf" && listing;
+  const shelfTheme = shelfThemeById(shelfThemeId);
+  // No modo Estante, toda a aplicação usa a madeira escolhida (tokens escuros + parede)
+  const shelfVars = shelfBg ? ({ "--color-background": shelfTheme.wall[1], "--color-surface-container-low": "rgba(255,255,255,.07)", "--color-surface-container": "rgba(255,255,255,.10)" } as React.CSSProperties) : undefined;
+  const shelfWall = shelfBg ? { backgroundImage: wallBackground(shelfTheme), backgroundAttachment: "fixed" as const } : undefined;
   const pageSize = touch ? MOBILE_PAGE_SIZE : DESKTOP_PAGE_SIZE;
 
   const query = useBooksQuery({
@@ -366,7 +373,7 @@ export function LibraryApp() {
               );
             });
             return viewMode === "shelf"
-              ? <BookShelf bookWidth={touch ? 96 : [150, 124, 104][density] ?? 124} gap={touch ? 12 : 18}>{cards}</BookShelf>
+              ? <BookShelf themeId={shelfThemeId} onTheme={setShelfThemeId} bookWidth={touch ? 96 : [150, 124, 104][density] ?? 124} gap={touch ? 12 : 18}>{cards}</BookShelf>
               : <div className={gridClass} style={gridStyle}>{cards}</div>;
           })()}
           <Pagination variant={touch ? "mobile" : "desktop"} page={page} totalPages={query.totalPages} onChange={goToPage} />
@@ -484,8 +491,8 @@ export function LibraryApp() {
   if (touch) {
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
     return (
-      <div className={darkMode ? "dark" : ""}>
-        <div className="min-h-screen bg-background text-on-background" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom))" }}>
+      <div className={darkMode || shelfBg ? "dark" : ""} style={shelfVars}>
+        <div className="min-h-screen bg-background text-on-background" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom))", ...shelfWall }}>
           <header className="sticky top-0 z-40 border-b border-outline-variant bg-background/95 backdrop-blur-xl" style={{ paddingTop: "env(safe-area-inset-top)" }}>
             <div className="flex h-14 items-center justify-between gap-3 px-4">
               <div className="flex items-center gap-2.5">
@@ -545,8 +552,8 @@ export function LibraryApp() {
 
   // ════════════ PC ════════════
   return (
-    <div className={darkMode ? "dark" : ""}>
-      <div className="flex min-h-screen bg-background text-on-background selection:bg-primary-fixed selection:text-primary">
+    <div className={darkMode || shelfBg ? "dark" : ""} style={shelfVars}>
+      <div className="flex min-h-screen bg-background text-on-background selection:bg-primary-fixed selection:text-primary" style={shelfWall}>
         <Sidebar
           view={view} activeCollectionId={activeCollection?.id} onView={go} onOpenCollection={openCollection}
           counts={{ total: facets.authors.length ? query.total : query.total, reading: reading.entries.length, selected: selection.list.length, series: facets.series.length, authors: facets.authors.length }}

@@ -14,6 +14,8 @@ test("vista Estante: livros em prateleiras, seleção continua a funcionar", asy
   await expect(page.getByTestId("shelf")).toHaveAttribute("data-theme-id", "carvalho");
   await page.screenshot({ path: "test-results/estante-carvalho.png" });
   await page.getByRole("button", { name: "Madeira Mogno" }).click();
+  // toda a aplicação passa a usar o fundo da madeira escolhida
+  await expect(page.locator("div.dark").first()).toHaveCSS("--color-background", "#2f130f");
   await page.screenshot({ path: "test-results/estante-mogno.png" });
   await page.getByRole("button", { name: "Opções de Livro 0", exact: true }).click();
   await page.getByRole("button", { name: "Adicionar à seleção" }).click();
