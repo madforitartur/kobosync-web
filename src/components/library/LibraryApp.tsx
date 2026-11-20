@@ -34,6 +34,7 @@ import { GroupList } from "./GroupList";
 import { KoboDialog } from "./KoboDialog";
 import { SelectionBar } from "./SelectionBar";
 import { ShareDialog } from "./ShareDialog";
+import { BookShelf } from "./BookShelf";
 import { SelectionDock } from "./SelectionDock";
 import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
@@ -352,8 +353,8 @@ export function LibraryApp() {
         </div>
       ) : visible.length > 0 ? (
         <>
-          <div className={gridClass} style={gridStyle}>
-            {visible.map((book) => {
+          {(() => {
+            const cards = visible.map((book) => {
               const st = progress.statusOf(book.id);
               return (
                 <BookCard
@@ -363,8 +364,11 @@ export function LibraryApp() {
                   onActivate={activate}
                 />
               );
-            })}
-          </div>
+            });
+            return viewMode === "shelf"
+              ? <BookShelf bookWidth={touch ? 96 : [150, 124, 104][density] ?? 124} gap={touch ? 12 : 18}>{cards}</BookShelf>
+              : <div className={gridClass} style={gridStyle}>{cards}</div>;
+          })()}
           <Pagination variant={touch ? "mobile" : "desktop"} page={page} totalPages={query.totalPages} onChange={goToPage} />
         </>
       ) : (
