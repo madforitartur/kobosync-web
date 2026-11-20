@@ -381,7 +381,7 @@ export function LibraryApp() {
               );
             });
             return viewMode === "shelf"
-              ? <BookShelf themeId={shelfThemeId} onTheme={setShelfThemeId} bookWidth={touch ? 96 : [150, 124, 104][density] ?? 124} gap={touch ? 12 : 18}>{cards}</BookShelf>
+              ? <BookShelf themeId={shelfThemeId} onTheme={setShelfThemeId} bookWidth={touch ? 76 : [210, 176, 148][density] ?? 176} gap={touch ? 10 : 22}>{cards}</BookShelf>
               : <div className={gridClass} style={gridStyle}>{cards}</div>;
           })()}
           <Pagination variant={touch ? "mobile" : "desktop"} page={page} totalPages={query.totalPages} onChange={goToPage} />
