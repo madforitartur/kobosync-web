@@ -127,3 +127,16 @@ export async function prepareShare(books: Book[], onProgress: ExportProgress): P
   }
   return { files, failed };
 }
+
+/**
+ * Escolhe como apresentar os ficheiros ao sistema de partilha: muitos browsers (Chrome/Android)
+ * só aceitam certos tipos MIME, por isso tenta o tipo EPUB, depois um genérico.
+ */
+export function shareableFiles(files: File[]): File[] | null {
+  const can = (list: File[]) => { try { return navigator.canShare({ files: list }); } catch { return false; } };
+  for (const type of ["application/epub+zip", "application/octet-stream", "application/zip"]) {
+    const list = files.map((f) => new File([f], f.name, { type }));
+    if (can(list)) return list;
+  }
+  return null;
+}

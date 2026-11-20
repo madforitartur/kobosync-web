@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Loader2, Share2 } from "lucide-react";
 import { Modal } from "./Modal";
-import { SHARE_MAX_BYTES, SHARE_MAX_FILES, canShareFiles, downloadZip, prepareShare } from "@/lib/kobo-export";
+import { SHARE_MAX_BYTES, SHARE_MAX_FILES, canShareFiles, downloadZip, prepareShare, shareableFiles } from "@/lib/kobo-export";
 import type { Book } from "@/types/library";
 
 type Props = { open: boolean; onClose: () => void; touch: boolean; books: Book[]; total: number; onDone: (message: string, type: "success" | "info" | "error") => void };
@@ -40,11 +40,13 @@ export function ShareDialog({ open, onClose, touch, books, total, onDone }: Prop
     setBusy(true);
     setError(null);
     try {
-      await navigator.share({ files, title: files.length === 1 ? files[0].name.replace(/\.epub$/i, "") : `${files.length} livros` });
-      onDone(`${files.length} livro${files.length !== 1 ? "s" : ""} partilhado${files.length !== 1 ? "s" : ""}.`, "success");
+      const list = shareableFiles(files);
+      if (!list) { setError("Este telemóvel não deixa partilhar ficheiros EPUB diretamente. Usa o ZIP ou descarrega o livro e anexa-o na app."); return; }
+      await navigator.share({ files: list, title: list.length === 1 ? list[0].name.replace(/\.epub$/i, "") : `${list.length} livros` });
+      onDone(`${list.length} livro${list.length !== 1 ? "s" : ""} partilhado${list.length !== 1 ? "s" : ""}.`, "success");
       onClose();
     } catch (e) {
-      if (!(e instanceof Error && e.name === "AbortError")) setError("A partilha não foi concluída. Tenta com menos livros ou usa o ZIP.");
+      if (!(e instanceof Error && e.name === "AbortError")) setError(`A partilha não foi concluída (${e instanceof Error ? `${e.name}: ${e.message}` : "erro desconhecido"}). Usa o ZIP ou descarrega o livro.`);
     } finally {
       setBusy(false);
     }
