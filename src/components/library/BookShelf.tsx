@@ -14,6 +14,80 @@ export const SHELF_THEMES = [
 ] as const;
 type ThemeId = (typeof SHELF_THEMES)[number]["id"];
 
+const colorCache = new Map<string, string>();
+
+/** Cor média (mais peso às cores vivas) de uma imagem; "r,g,b". */
+function averageColor(img: HTMLImageElement): string | null {
+  try {
+    const c = document.createElement("canvas");
+    c.width = 12; c.height = 18;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0, 12, 18);
+    const d = ctx.getImageData(0, 0, 12, 18).data;
+    let r = 0, g = 0, b = 0, w = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const mx = Math.max(d[i], d[i + 1], d[i + 2]), mn = Math.min(d[i], d[i + 1], d[i + 2]);
+      const wt = 0.15 + (mx - mn) / 255; // cores vivas pesam mais
+      r += d[i] * wt; g += d[i + 1] * wt; b += d[i + 2] * wt; w += wt;
+    }
+    return `${Math.round(r / w)},${Math.round(g / w)},${Math.round(b / w)}`;
+  } catch {
+    return null;
+  }
+}
+
+/** Cor da lombada: a da capa (imagem real ou capa gerada). */
+function useSpineColor(cell: React.RefObject<HTMLDivElement | null>) {
+  const [rgb, setRgb] = useState<string | null>(null);
+  useEffect(() => {
+    const el = cell.current;
+    if (!el) return;
+    let off: (() => void) | undefined;
+    const find = () => {
+      off?.();
+      const img = el.querySelector("img");
+      if (img) {
+        const key = img.currentSrc || img.src;
+        const hit = colorCache.get(key);
+        if (hit) return setRgb(hit);
+        const done = () => { const c = averageColor(img); if (c) { colorCache.set(key, c); setRgb(c); } };
+        if (img.complete && img.naturalWidth) done();
+        else { img.addEventListener("load", done, { once: true }); off = () => img.removeEventListener("load", done); }
+        return;
+      }
+      const gen = el.querySelector<HTMLElement>('[role="img"]');
+      if (gen) {
+        const m = [...getComputedStyle(gen).backgroundImage.matchAll(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/g)];
+        if (m.length) {
+          const avg = [1, 2, 3].map((k) => Math.round(m.reduce((n, x) => n + Number(x[k]), 0) / m.length));
+          setRgb(avg.join(","));
+        }
+      }
+    };
+    find();
+    const mo = new MutationObserver(find);
+    mo.observe(el, { childList: true, subtree: true });
+    return () => { mo.disconnect(); off?.(); };
+  }, [cell]);
+  return rgb;
+}
+
+function ShelfBook({ width, depth, children }: { width: number; depth: number; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const rgb = useSpineColor(ref);
+  const style = { width, "--d": `${depth}px`, "--sc": rgb ?? "48,40,36" } as CSSProperties;
+  return (
+    <div ref={ref} className="kb-shelf-book" style={style}>
+      <div className="kb-3d">
+        <i className="kb-spine" aria-hidden />
+        <i className="kb-pages" aria-hidden />
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Estante: os livros (em 3D) ficam em pé, encostados à parede, e pousam em tábuas de madeira.
  * O número de livros por prateleira ajusta-se à largura disponível.
@@ -61,16 +135,8 @@ export function BookShelf({ children, bookWidth, gap = 16 }: Props) {
           <div key={r} className="kb-shelf-row">
             <div className="flex items-end" style={{ gap: gap + 6 }}>
               {row.map((c, i) => {
-                const depth = 14 + ((r * 7 + i * 5) % 5) * 3; // espessura diferente por livro (14–26px)
-                return (
-                  <div key={i} className="kb-shelf-book" style={{ width: bookWidth, ["--d" as string]: `${depth}px` }}>
-                    <div className="kb-3d">
-                      <i className="kb-spine" aria-hidden />
-                      <i className="kb-pages" aria-hidden />
-                      {c}
-                    </div>
-                  </div>
-                );
+                const depth = 18 + ((r * 7 + i * 5) % 5) * 4; // espessura diferente por livro (18–34px)
+                return <ShelfBook key={i} width={bookWidth} depth={depth}>{c}</ShelfBook>;
               })}
             </div>
             <div className="kb-plank" aria-hidden />
@@ -100,26 +166,40 @@ const SHELF_CSS = `
   box-shadow: 0 10px 14px -4px rgba(0,0,0,.6), inset 0 -3px 0 rgba(0,0,0,.25);
 }
 
-/* Livro em 3D: capa à frente, lombada à esquerda e folhas à direita */
-.kb-shelf-book { perspective: 700px; position: relative; }
-.kb-shelf-book::after { /* sombra no tabuleiro */
-  content: ""; position: absolute; left: 6%; right: -22%; bottom: -3px; height: 12px; z-index: -1;
-  background: radial-gradient(closest-side, rgba(0,0,0,.6), transparent); filter: blur(2px);
+/* Livro em 3D: capa à frente, lombada (na cor da capa) à esquerda e folhas à direita */
+.kb-shelf-book { perspective: 800px; position: relative; }
+.kb-shelf-book::before { /* sombra projetada na parede, atrás do livro */
+  content: ""; position: absolute; z-index: -1; left: 14%; right: -16%; top: 4%; bottom: 2px;
+  background: rgba(0,0,0,.55); filter: blur(9px); border-radius: 4px; transform: translate(10px, 2px);
+  transition: transform .25s ease, opacity .25s ease, filter .25s ease; opacity: .8;
+}
+.kb-shelf-book::after { /* sombra no tabuleiro, fica no sítio quando o livro levanta */
+  content: ""; position: absolute; left: 4%; right: -26%; bottom: -4px; height: 14px; z-index: -1;
+  background: radial-gradient(closest-side, rgba(0,0,0,.7), transparent); filter: blur(2px);
+  transition: opacity .25s ease, transform .25s ease;
 }
 .kb-3d {
   position: relative; transform-style: preserve-3d; transform-origin: 50% 100%;
-  transform: rotateY(26deg); transition: transform .25s ease;
+  transform: rotateY(30deg); transition: transform .25s ease;
 }
-.kb-shelf-book:hover .kb-3d, .kb-shelf-book:focus-within .kb-3d { transform: translateY(-8px) rotateY(10deg); }
+.kb-shelf-book:hover .kb-3d, .kb-shelf-book:focus-within .kb-3d { transform: translateY(-6px) rotateY(14deg); }
+/* selecionado: levanta da base, a sombra do tabuleiro fica visível por baixo */
+.kb-shelf-book:has([data-selected="true"]) .kb-3d { transform: translateY(-24px) rotateY(14deg); }
+.kb-shelf-book:has([data-selected="true"])::before { transform: translate(18px, 14px); opacity: .6; filter: blur(12px); }
+.kb-shelf-book:has([data-selected="true"])::after { opacity: .95; transform: scale(1.08); }
 .kb-3d > :not(i) { box-shadow: inset 2px 0 3px rgba(255,255,255,.18), inset -2px 0 4px rgba(0,0,0,.25); border-radius: 2px 4px 4px 2px; }
 .kb-spine, .kb-pages { position: absolute; top: 0; bottom: 0; width: var(--d); display: block; }
 .kb-spine {
   left: 0; transform-origin: left center; transform: rotateY(90deg);
   background:
-    linear-gradient(90deg, rgba(255,255,255,.18), rgba(0,0,0,.35)),
-    linear-gradient(180deg, #2a2420, #1b1714);
-  border-top: 3px solid rgba(255,215,130,.45); border-bottom: 3px solid rgba(255,215,130,.45);
+    linear-gradient(90deg, rgba(255,255,255,.22), rgba(255,255,255,0) 35%, rgba(0,0,0,.30)),
+    linear-gradient(180deg, rgb(var(--sc)), color-mix(in srgb, rgb(var(--sc)) 70%, black));
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
 }
+.kb-spine::before, .kb-spine::after { /* filetes decorativos da lombada */
+  content: ""; position: absolute; left: 0; right: 0; height: 2px; background: rgba(255,255,255,.35);
+}
+.kb-spine::before { top: 12%; } .kb-spine::after { bottom: 12%; }
 .kb-pages {
   right: 0; transform-origin: right center; transform: rotateY(-90deg);
   background:
@@ -127,5 +207,5 @@ const SHELF_CSS = `
     linear-gradient(90deg, #efe6d2, #d9cdb4);
   margin: 3px 0;
 }
-@media (prefers-reduced-motion: reduce) { .kb-3d { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .kb-3d, .kb-shelf-book::before, .kb-shelf-book::after { transition: none; } }
 `;

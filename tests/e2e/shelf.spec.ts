@@ -16,7 +16,11 @@ test("vista Estante: livros em prateleiras, seleção continua a funcionar", asy
   await page.getByRole("button", { name: "Madeira Mogno" }).click();
   await page.screenshot({ path: "test-results/estante-mogno.png" });
   await page.getByRole("button", { name: "Opções de Livro 0", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Adicionar à seleção" })).toBeVisible();
+  await page.getByRole("button", { name: "Adicionar à seleção" }).click();
+  await expect(page.locator('[data-selected="true"]')).toHaveCount(1);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/estante-selecionado.png" });
   await page.reload();
   await expect(page.getByTestId("shelf")).toBeVisible(); // a escolha fica guardada
   await expect(page.getByTestId("shelf")).toHaveAttribute("data-theme-id", "mogno");

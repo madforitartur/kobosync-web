@@ -49,6 +49,7 @@ function BookCardBase({ book, selected, progress, sentToKobo, finished, compact,
     return (
       <motion.div
         {...handlers}
+        data-selected={selected}
         title={`${title}${book.author ? ` — ${book.author}` : ""}`}
         whileTap={{ scale: 0.96 }}
         transition={{ duration: 0.12 }}
