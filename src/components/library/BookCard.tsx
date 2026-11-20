@@ -14,7 +14,7 @@ export type BookCardProps = {
   finished?: boolean;
   /** modo compacto (telemóvel) */
   compact: boolean;
-  variant: "grid" | "list";
+  variant: "grid" | "list" | "shelf";
   selectMode?: boolean;
   onActivate: (book: Book, e: React.MouseEvent | React.KeyboardEvent) => void;
 };
@@ -44,6 +44,20 @@ function BookCardBase({ book, selected, progress, sentToKobo, finished, compact,
   const cover = (
     <BookCover coverUrl={book.cover_url} title={title} author={book.author} isSelected={selected} progress={progress} sentToKobo={sentToKobo} finished={finished} />
   );
+
+  if (variant === "shelf") {
+    return (
+      <motion.div
+        {...handlers}
+        title={`${title}${book.author ? ` — ${book.author}` : ""}`}
+        whileTap={{ scale: 0.96 }}
+        transition={{ duration: 0.12 }}
+        className="cursor-pointer rounded-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-300"
+      >
+        {cover}
+      </motion.div>
+    );
+  }
 
   if (variant === "list") {
     return (

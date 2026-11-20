@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowDownAZ, LayoutGrid, List, SlidersHorizontal, X, CheckSquare } from "lucide-react";
+import { ArrowDownAZ, Library, LayoutGrid, List, SlidersHorizontal, X, CheckSquare } from "lucide-react";
 import { SORT_OPTIONS, STATUS_OPTIONS, activeFilterCount, type Filters, type SortKey } from "@/lib/library-types";
 import type { Collection } from "@/hooks/useCollections";
 
-export type ViewMode = "grid" | "list";
+export type ViewMode = "grid" | "list" | "shelf";
 
 type Props = {
   touch: boolean;
@@ -60,13 +60,17 @@ export function Toolbar({ touch, sort, onSort, filters, onFilters, onOpenFilters
         </button>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {!touch && viewMode === "grid" && (
+          {!touch && (viewMode === "grid" || viewMode === "shelf") && (
             <input type="range" min={0} max={2} step={1} value={density} onChange={(e) => onDensity(Number(e.target.value))} aria-label="Tamanho das capas" className="w-20 accent-primary" />
           )}
-          <button onClick={() => onViewMode(viewMode === "grid" ? "list" : "grid")} aria-label={viewMode === "grid" ? "Ver em lista" : "Ver em grelha"}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-outline-variant text-on-surface-variant">
-            {viewMode === "grid" ? <List size={15} /> : <LayoutGrid size={15} />}
-          </button>
+          <div role="group" aria-label="Apresentação" className="flex overflow-hidden rounded-full border border-outline-variant">
+            {([["grid", "Grelha", LayoutGrid], ["list", "Lista", List], ["shelf", "Estante", Library]] as const).map(([m, label, Icon]) => (
+              <button key={m} onClick={() => onViewMode(m)} aria-label={`Ver em ${label.toLowerCase()}`} aria-pressed={viewMode === m} title={label}
+                className={`flex h-8 w-8 items-center justify-center ${viewMode === m ? "bg-primary text-on-primary" : "text-on-surface-variant"}`}>
+                <Icon size={15} />
+              </button>
+            ))}
+          </div>
           <button onClick={onToggleSelectMode} aria-pressed={selectMode} aria-label="Modo de seleção"
             className={`flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-xs font-bold sm:px-3 ${selectMode ? "border-primary bg-primary text-on-primary" : "border-outline-variant text-on-surface-variant"}`}>
             <CheckSquare size={14} /> <span className="hidden md:inline">Selecionar</span>
