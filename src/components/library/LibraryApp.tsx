@@ -101,6 +101,14 @@ export function LibraryApp() {
   const shelfTheme = shelfThemeById(shelfThemeId);
   // No modo Estante, toda a aplicação usa a madeira escolhida (tokens escuros + parede)
   const shelfVars = shelfBg ? ({ "--color-background": shelfTheme.wall[1], "--color-surface-container-low": "rgba(255,255,255,.07)", "--color-surface-container": "rgba(255,255,255,.10)" } as React.CSSProperties) : undefined;
+  // Barras do sistema (estado e navegação do telemóvel) com a mesma cor do fundo da app → ficam "transparentes"
+  useEffect(() => {
+    const metas = [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')];
+    const before = metas.map((m) => m.content);
+    const color = shelfBg ? shelfTheme.wall[1] : darkMode ? "#0d0f10" : "#f9f9f9";
+    metas.forEach((m) => { m.content = color; });
+    return () => metas.forEach((m, i) => { m.content = before[i]; });
+  }, [shelfBg, shelfTheme, darkMode]);
   const shelfWall = shelfBg ? { backgroundImage: wallBackground(shelfTheme), backgroundAttachment: "fixed" as const } : undefined;
   const pageSize = touch ? MOBILE_PAGE_SIZE : DESKTOP_PAGE_SIZE;
 

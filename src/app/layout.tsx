@@ -5,7 +5,7 @@ import { PWARegister } from "@/components/PWARegister";
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#030813" },
+    { media: "(prefers-color-scheme: light)", color: "#f9f9f9" },
     { media: "(prefers-color-scheme: dark)", color: "#0d0f10" },
   ],
   width: "device-width",

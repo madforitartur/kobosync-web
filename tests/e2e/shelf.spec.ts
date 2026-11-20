@@ -38,3 +38,14 @@ test("estante no telemóvel", async ({ page }) => {
   await expect(page.getByTestId("shelf")).toBeVisible();
   await page.screenshot({ path: "test-results/estante-mobile.png" });
 });
+
+test("barras do sistema acompanham a cor do fundo da app", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await mockApi(page);
+  await page.goto("/");
+  const colors = () => page.evaluate(() => [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map((m) => m.content));
+  await expect.poll(colors).toEqual(["#f9f9f9", "#f9f9f9"]);
+  await page.getByRole("button", { name: "Ver em estante" }).click();
+  await page.getByRole("button", { name: "Madeira Mogno" }).click();
+  await expect.poll(colors).toEqual(["#2f130f", "#2f130f"]);
+});

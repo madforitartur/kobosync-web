@@ -4,8 +4,8 @@
   "description": "Biblioteca EPUB com Google Drive, Firebase e Kobo",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#17345c",
-  "theme_color": "#17345c",
+  "background_color": "#f9f9f9",
+  "theme_color": "#f9f9f9",
   "orientation": "any",
   "icons": [
     {
