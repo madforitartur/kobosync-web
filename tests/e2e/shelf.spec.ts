@@ -9,10 +9,23 @@ test("vista Estante: livros em prateleiras, seleção continua a funcionar", asy
   await expect(page.getByTestId("shelf")).toBeVisible();
   expect(await page.locator(".kb-plank").count()).toBeGreaterThanOrEqual(1);
   await page.screenshot({ path: "test-results/estante.png" });
+  await expect(page.getByTestId("shelf")).toHaveAttribute("data-theme-id", "nogueira");
+  await page.getByRole("button", { name: "Madeira Carvalho" }).click();
+  await expect(page.getByTestId("shelf")).toHaveAttribute("data-theme-id", "carvalho");
+  await page.screenshot({ path: "test-results/estante-carvalho.png" });
+  await page.getByRole("button", { name: "Madeira Mogno" }).click();
+  // toda a aplicação passa a usar o fundo da madeira escolhida
+  await expect(page.locator("div.dark").first()).toHaveCSS("--color-background", "#2f130f");
+  await page.screenshot({ path: "test-results/estante-mogno.png" });
   await page.getByRole("button", { name: "Opções de Livro 0", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Adicionar à seleção" })).toBeVisible();
+  await page.getByRole("button", { name: "Adicionar à seleção" }).click();
+  await expect(page.locator('[data-selected="true"]')).toHaveCount(1);
+  await page.mouse.move(5, 5);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/estante-selecionado.png" });
   await page.reload();
   await expect(page.getByTestId("shelf")).toBeVisible(); // a escolha fica guardada
+  await expect(page.getByTestId("shelf")).toHaveAttribute("data-theme-id", "mogno");
   await page.getByRole("button", { name: "Ver em grelha" }).click();
   await expect(page.getByTestId("shelf")).toHaveCount(0);
 });
@@ -24,4 +37,15 @@ test("estante no telemóvel", async ({ page }) => {
   await page.getByRole("button", { name: "Ver em estante" }).click();
   await expect(page.getByTestId("shelf")).toBeVisible();
   await page.screenshot({ path: "test-results/estante-mobile.png" });
+});
+
+test("barras do sistema acompanham a cor do fundo da app", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await mockApi(page);
+  await page.goto("/");
+  const colors = () => page.evaluate(() => [...document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')].map((m) => m.content));
+  await expect.poll(colors).toEqual(["#f9f9f9", "#f9f9f9"]);
+  await page.getByRole("button", { name: "Ver em estante" }).click();
+  await page.getByRole("button", { name: "Madeira Mogno" }).click();
+  await expect.poll(colors).toEqual(["#2f130f", "#2f130f"]);
 });

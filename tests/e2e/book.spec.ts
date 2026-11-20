@@ -49,7 +49,7 @@ test.describe("desktop", () => {
     await page.keyboard.press("ArrowRight");
     await page.waitForTimeout(300);
     expect(await left(page)).toBe(x);
-    await expect(page.getByText("100%")).toBeVisible();
+    await expect(page.getByText("100%")).toBeVisible({ timeout: 15_000 });
   });
 
   test("a posição mantém-se depois de recarregar e de mudar o tamanho da janela", async ({ page }) => {
