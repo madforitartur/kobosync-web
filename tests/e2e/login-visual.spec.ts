@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const profiles = [{ id: "admin", name: "Artur", role: "admin" }, { id: "u1", name: "Ana", role: "user" }, { id: "u2", name: "Rui", role: "user" }];
+const profiles = [{ id: "admin", name: "Artur", role: "admin" }, { id: "u1", name: "Ana", role: "user" }, { id: "u2", name: "Rui", role: "user" }, { id: "u3", name: "Marta", role: "user" }, { id: "u4", name: "Tiago", role: "user" }];
 
 for (const [name, vp] of [["pc", { width: 1440, height: 900 }], ["telemovel", { width: 390, height: 800 }]] as const) {
   test(`login com visual de biblioteca (${name})`, async ({ page }) => {
