@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCheck, FolderPlus, Trash2, Usb } from "lucide-react";
+import { CheckCheck, FolderPlus, Share2, Trash2, Usb } from "lucide-react";
 
 type Props = {
   count: number;
@@ -11,11 +11,12 @@ type Props = {
   totalResults?: number;
   onClear: () => void;
   onKobo: () => void;
+  onShare: () => void;
   onCollection: () => void;
 };
 
 /** Barra de ações da seleção (modo "Selecionar" e separador Seleção). */
-export function SelectionBar({ count, pageCount, allOnPage, onSelectPage, onSelectAllResults, totalResults, onClear, onKobo, onCollection }: Props) {
+export function SelectionBar({ count, pageCount, allOnPage, onSelectPage, onSelectAllResults, totalResults, onClear, onKobo, onShare, onCollection }: Props) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-primary/40 bg-surface-container-low px-3 py-2.5" role="toolbar" aria-label="Ações da seleção">
       <span className="mr-1 text-sm font-bold text-primary" aria-live="polite">{count} {count === 1 ? "selecionado" : "selecionados"}</span>
@@ -30,6 +31,9 @@ export function SelectionBar({ count, pageCount, allOnPage, onSelectPage, onSele
       <span className="flex-1" />
       <button onClick={onCollection} disabled={count === 0} className="flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-bold disabled:opacity-40">
         <FolderPlus size={14} /> Coleção
+      </button>
+      <button onClick={onShare} disabled={count === 0} className="flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-bold disabled:opacity-40">
+        <Share2 size={14} /> Partilhar
       </button>
       <button onClick={onKobo} disabled={count === 0} className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary disabled:opacity-40">
         <Usb size={14} /> Kobo
