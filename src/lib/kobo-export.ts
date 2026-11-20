@@ -3,7 +3,7 @@ import { cleanBookTitle } from "./book-title";
 import type { Book } from "@/types/library";
 
 /** Nome de ficheiro seguro e único. */
-function fileNameFor(book: Book, used: Set<string>): string {
+export function fileNameFor(book: Book, used: Set<string>): string {
   const base = cleanBookTitle(book.title).replace(/[\/\\:*?"<>|]+/g, "-").trim().slice(0, 120) || "livro";
   let name = `${base}.epub`;
   let n = 2;
@@ -12,7 +12,7 @@ function fileNameFor(book: Book, used: Set<string>): string {
   return name;
 }
 
-async function fetchEpub(book: Book): Promise<Blob> {
+export async function fetchEpub(book: Book): Promise<Blob> {
   const res = await fetch(`/api/books/${book.id}/download`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const blob = await res.blob();
@@ -98,4 +98,45 @@ export async function downloadZip(books: Book[], onProgress: ExportProgress): Pr
   }
   await flush();
   return result;
+}
+
+// ── Partilha (WhatsApp e outras apps) ────────────────────────────────────────
+export const SHARE_MAX_FILES = 20; // o WhatsApp aceita até ~30 ficheiros por mensagem
+export const SHARE_MAX_BYTES = 100 * 1024 * 1024; // limite de documentos do WhatsApp
+
+/** O browser consegue partilhar ficheiros (Android/iOS e alguns browsers de PC)? */
+export function canShareFiles(): boolean {
+  if (typeof navigator === "undefined" || typeof navigator.share !== "function" || typeof navigator.canShare !== "function") return false;
+  try { return navigator.canShare({ files: [new File(["x"], "x.epub", { type: "application/epub+zip" })] }); } catch { return false; }
+}
+
+/** Descarrega os EPUB para a memória, prontos a partilhar. */
+export async function prepareShare(books: Book[], onProgress: ExportProgress): Promise<{ files: File[]; failed: string[] }> {
+  const used = new Set<string>();
+  const files: File[] = [];
+  const failed: string[] = [];
+  let done = 0;
+  for (const book of books) {
+    try {
+      const blob = await fetchEpub(book);
+      files.push(new File([blob], fileNameFor(book, used), { type: "application/epub+zip" }));
+    } catch {
+      failed.push(book.id);
+    }
+    onProgress(++done, books.length);
+  }
+  return { files, failed };
+}
+
+/**
+ * Escolhe como apresentar os ficheiros ao sistema de partilha: muitos browsers (Chrome/Android)
+ * só aceitam certos tipos MIME, por isso tenta o tipo EPUB, depois um genérico.
+ */
+export function shareableFiles(files: File[]): File[] | null {
+  const can = (list: File[]) => { try { return navigator.canShare({ files: list }); } catch { return false; } };
+  for (const type of ["application/epub+zip", "application/octet-stream", "application/zip"]) {
+    const list = files.map((f) => new File([f], f.name, { type }));
+    if (can(list)) return list;
+  }
+  return null;
 }

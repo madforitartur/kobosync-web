@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderPlus, Trash2, Usb, X } from "lucide-react";
+import { FolderPlus, Share2, Trash2, Usb, X } from "lucide-react";
 import { BookCover } from "@/components/BookCover";
 import { cleanBookTitle } from "@/lib/book-title";
 import type { Book } from "@/types/library";
@@ -11,11 +11,12 @@ type Props = {
   onRemove: (id: string) => void;
   onClear: () => void;
   onKobo: () => void;
+  onShare: () => void;
   onCollection: () => void;
 };
 
 /** Painel lateral (PC) com a seleção sempre à vista. */
-export function SelectionDock({ books, count, onRemove, onClear, onKobo, onCollection }: Props) {
+export function SelectionDock({ books, count, onRemove, onClear, onKobo, onShare, onCollection }: Props) {
   return (
     <aside className="sticky top-0 hidden h-screen w-72 shrink-0 flex-col border-l border-outline-variant bg-background xl:flex" aria-label="Seleção">
       <div className="border-b border-outline-variant px-4 py-4">
@@ -37,6 +38,7 @@ export function SelectionDock({ books, count, onRemove, onClear, onKobo, onColle
       </ul>
       <div className="space-y-2 border-t border-outline-variant p-3">
         <button onClick={onKobo} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-bold text-on-primary"><Usb size={16} /> Enviar para o Kobo</button>
+        <button onClick={onShare} className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2 text-sm font-bold text-primary"><Share2 size={16} /> Partilhar (WhatsApp…)</button>
         <div className="flex gap-2">
           <button onClick={onCollection} className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-outline-variant px-3 py-2 text-xs font-bold"><FolderPlus size={14} /> Guardar coleção</button>
           <button onClick={onClear} aria-label="Limpar seleção" className="flex h-9 w-9 items-center justify-center rounded-lg border border-outline-variant text-error"><Trash2 size={14} /></button>

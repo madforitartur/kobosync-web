@@ -33,6 +33,7 @@ import { FilterPanel } from "./FilterPanel";
 import { GroupList } from "./GroupList";
 import { KoboDialog } from "./KoboDialog";
 import { SelectionBar } from "./SelectionBar";
+import { ShareDialog } from "./ShareDialog";
 import { SelectionDock } from "./SelectionDock";
 import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
@@ -68,6 +69,7 @@ export function LibraryApp() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [bookMenu, setBookMenu] = useState<BookMenuState>(null);
   const [detail, setDetail] = useState<Book | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [pickerIds, setPickerIds] = useState<string[] | null>(null);
   const [koboOpen, setKoboOpen] = useState(false);
   const pwa = useInstall();
@@ -293,6 +295,10 @@ export function LibraryApp() {
         : { type: "info", message: `${result.sent.length} ${what}, ${result.failed.length} falharam.` },
     );
   }
+  function openShare() {
+    if (selection.list.length === 0) { setStatus({ type: "error", message: "Nenhum livro selecionado para partilhar." }); return; }
+    setShareOpen(true);
+  }
   function openKobo() {
     if (selection.list.length === 0) { setStatus({ type: "error", message: "Nenhum livro selecionado para enviar." }); return; }
     setKoboOpen(true);
@@ -403,7 +409,7 @@ export function LibraryApp() {
           <SelectionBar
             count={selection.list.length} pageCount={visible.length} allOnPage={allOnPage}
             onSelectPage={toggleSelectPage} onSelectAllResults={selectAllResults} totalResults={query.total}
-            onClear={selection.clear} onKobo={openKobo} onCollection={() => setPickerIds(selection.list)}
+            onClear={selection.clear} onKobo={openKobo} onShare={openShare} onCollection={() => setPickerIds(selection.list)}
           />
         )}
         {books}
@@ -459,6 +465,10 @@ export function LibraryApp() {
       <KoboDialog
         open={koboOpen} onClose={() => setKoboOpen(false)} touch={touch}
         books={selectedBooks} total={selection.list.length} onDone={onKoboDone}
+      />
+      <ShareDialog
+        open={shareOpen} onClose={() => setShareOpen(false)} touch={touch}
+        books={selectedBooks} total={selection.list.length} onDone={(message, type) => setStatus({ type, message })}
       />
       <StatusToast status={status} onClose={() => setStatus(null)} touch={touch} />
     </>
@@ -566,7 +576,7 @@ export function LibraryApp() {
           <SelectionDock
             books={selectedBooks.slice(0, 40)} count={selection.list.length}
             onRemove={(id) => selection.remove([id])} onClear={selection.clear}
-            onKobo={openKobo} onCollection={() => setPickerIds(selection.list)}
+            onKobo={openKobo} onShare={openShare} onCollection={() => setPickerIds(selection.list)}
           />
         )}
         {overlays}
