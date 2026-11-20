@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Download, Loader2, Share2 } from "lucide-react";
+import { Download, Link2, Loader2, Share2 } from "lucide-react";
 import { Modal } from "./Modal";
 import { SHARE_MAX_BYTES, SHARE_MAX_FILES, canShareFiles, downloadZip, prepareShare, shareableFiles } from "@/lib/kobo-export";
 import type { Book } from "@/types/library";
@@ -52,6 +52,29 @@ export function ShareDialog({ open, onClose, touch, books, total, onDone }: Prop
     }
   }
 
+  /** Partilha links temporários (sempre permitido pelo sistema; o WhatsApp abre-os como texto). */
+  async function shareLinks() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/share/links", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: list.map((b) => b.id) }) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { links, days } = (await res.json()) as { links: { title: string; url: string }[]; days: number };
+      const text = `${links.map((l) => `${l.title}\n${l.url}`).join("\n\n")}\n\n(links válidos ${days} dias)`;
+      if (typeof navigator.share === "function") {
+        try { await navigator.share({ title: "Livros", text }); onDone("Links partilhados.", "success"); onClose(); return; }
+        catch (e) { if (e instanceof Error && e.name === "AbortError") return; }
+      }
+      await navigator.clipboard.writeText(text);
+      onDone("Links copiados. Cola-os na conversa.", "success");
+      onClose();
+    } catch {
+      setError("Não foi possível criar os links.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function zip() {
     setBusy(true);
     try { const r = await downloadZip(list, () => {}); onDone(`${r.sent.length} livros incluídos no ZIP.`, "info"); onClose(); }
@@ -75,12 +98,16 @@ export function ShareDialog({ open, onClose, touch, books, total, onDone }: Prop
         {error && <p role="alert" className="font-semibold text-error">{error}</p>}
 
         {shareOk ? (
-          <button disabled={!files?.length || busy} onClick={share} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-bold text-on-primary disabled:opacity-50">
-            {busy ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />} Partilhar (WhatsApp, outras apps)
+          <button disabled={!files?.length || busy} onClick={share} className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2.5 font-bold text-primary disabled:opacity-50">
+            {busy ? <Loader2 size={16} className="animate-spin" /> : <Share2 size={16} />} Partilhar o ficheiro
           </button>
         ) : (
           !loading && <p className="rounded-lg border border-outline-variant p-3 text-xs text-on-surface-variant">Este browser não permite partilhar ficheiros diretamente. Abre a biblioteca no telemóvel (Chrome ou Safari) para usar o WhatsApp, ou descarrega os livros e anexa-os à mensagem.</p>
         )}
+        <button disabled={busy || list.length === 0} onClick={shareLinks} className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-bold text-on-primary disabled:opacity-50">
+          <Link2 size={16} /> Partilhar link (WhatsApp, 7 dias)
+        </button>
+        <p className="-mt-2 text-xs text-on-surface-variant">Quem receber o link descarrega o EPUB sem precisar de conta. Recomendado no Android, onde o Chrome não deixa partilhar o ficheiro EPUB diretamente.</p>
         <button disabled={busy || list.length === 0} onClick={zip} className="flex w-full items-center justify-center gap-2 rounded-lg border border-outline-variant px-4 py-2.5 font-bold disabled:opacity-50">
           <Download size={16} /> Descarregar em ZIP
         </button>

@@ -9,6 +9,7 @@ const PUBLIC_PREFIXES = [
   "/api/receber/new",
   "/api/receber/poll",
   "/api/receber/dl", // protegido por código + segredo da sessão
+  "/api/share/dl/", // link de partilha assinado e com validade
   "/_next/",
   "/icons/",
 ];

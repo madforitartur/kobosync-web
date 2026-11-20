@@ -51,3 +51,22 @@ export async function verifySessionToken(token: string | undefined): Promise<str
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(uid) || !(Number(exp) > Date.now() / 1000)) return null;
   return safeEqual(sig, await sign(`${uid}.${exp}`)) ? uid : null;
 }
+
+// ── Links de partilha de um livro (temporários, sem login) ───────────────────
+export const SHARE_LINK_DAYS = 7;
+const BOOK_ID = /^[A-Za-z0-9_-]{1,128}$/;
+
+export async function createShareToken(bookId: string): Promise<string | null> {
+  if (!BOOK_ID.test(bookId)) return null;
+  const exp = Math.floor(Date.now() / 1000) + SHARE_LINK_DAYS * 86400;
+  return `${bookId}.${exp}.${await sign(`share:${bookId}.${exp}`)}`;
+}
+
+/** Devolve o id do livro se o link for válido e não tiver expirado. */
+export async function verifyShareToken(token: string): Promise<string | null> {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [id, exp, sig] = parts;
+  if (!BOOK_ID.test(id) || !(Number(exp) > Date.now() / 1000)) return null;
+  return safeEqual(sig, await sign(`share:${id}.${exp}`)) ? id : null;
+}
