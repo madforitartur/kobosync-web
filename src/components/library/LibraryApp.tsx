@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Menu, Search, X } from "lucide-react";
 import { MobileBottomNav, type Tab } from "@/components/MobileBottomNav";
 import { MobileMenu } from "@/components/MobileMenu";
+import { CloseAppButton } from "@/components/CloseAppButton";
 import { Pagination } from "@/components/Pagination";
 import { ReadingList } from "@/components/ReadingList";
 import { useReadingList } from "@/hooks/useReadingList";
@@ -516,6 +517,7 @@ export function LibraryApp() {
                   onClick={() => setMenuOpen(true)} aria-label="Abrir menu" aria-haspopup="dialog">
                   <Menu size={18} />
                 </button>
+                <CloseAppButton />
               </div>
             </div>
             {(searchOpen || q) && (
