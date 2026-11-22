@@ -5,6 +5,7 @@ import { BookOpen, Menu, Search, X } from "lucide-react";
 import { MobileBottomNav, type Tab } from "@/components/MobileBottomNav";
 import { MobileMenu } from "@/components/MobileMenu";
 import { CloseAppButton } from "@/components/CloseAppButton";
+import { isStandaloneApp } from "@/lib/pwa-install";
 import { Pagination } from "@/components/Pagination";
 import { ReadingList } from "@/components/ReadingList";
 import { useReadingList } from "@/hooks/useReadingList";
@@ -498,7 +499,7 @@ export function LibraryApp() {
 
   // ════════════ MOBILE ════════════
   if (touch) {
-    const isStandalone = window.matchMedia("(display-mode: standalone)").matches;
+    const isStandalone = isStandaloneApp();
     return (
       <div className={darkMode || shelfBg ? "dark" : ""} style={shelfVars}>
         <div className="min-h-screen bg-background text-on-background" style={{ paddingBottom: "calc(72px + env(safe-area-inset-bottom))", ...shelfWall }}>

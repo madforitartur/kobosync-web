@@ -87,12 +87,14 @@ export function MobileMenu({
   const { settings, update } = useReaderSettings();
   const [isFs, setIsFs] = useState(false);
   const [fsSupported, setFsSupported] = useState(true);
+  const [pwaFs, setPwaFs] = useState(false); // app instalada: o manifesto já a abre em ecrã completo
 
   useEffect(() => {
     const d = document as Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element };
     setFsSupported(!!(document.fullscreenEnabled || d.webkitFullscreenEnabled));
     const sync = () => setIsFs(!!(document.fullscreenElement || d.webkitFullscreenElement));
     sync();
+    setPwaFs(window.matchMedia("(display-mode: fullscreen)").matches);
     document.addEventListener("fullscreenchange", sync);
     document.addEventListener("webkitfullscreenchange", sync);
     return () => {
@@ -259,21 +261,23 @@ export function MobileMenu({
 
               <button
                 onClick={toggleFullscreen}
-                disabled={!fsSupported}
+                disabled={!fsSupported || pwaFs}
                 role="switch"
-                aria-checked={isFs}
+                aria-checked={isFs || pwaFs}
                 className={`${rowClass} mt-4`}
               >
                 <Maximize size={18} />
                 <span className="flex-1">
                   Ecrã completo
                   <span className="block text-[11px] font-normal text-outline">
-                    {fsSupported
+                    {pwaFs
+                      ? "Sempre ativo na app instalada"
+                      : fsSupported
                       ? "Também ao abrir um livro (ativa-se ao primeiro toque)"
                       : "Não disponível neste browser — instala a app"}
                   </span>
                 </span>
-                <Switch checked={isFs} />
+                <Switch checked={isFs || pwaFs} />
               </button>
 
               <SectionTitle>Aplicação</SectionTitle>

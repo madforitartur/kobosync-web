@@ -42,3 +42,9 @@ test.describe("telemóvel", () => {
     expect(html).toContain("kb-boot");
   });
 });
+
+test("manifesto da app instalada abre em ecrã completo", async ({ request }) => {
+  const m = await (await request.get("/manifest.json")).json();
+  expect(m.display).toBe("fullscreen");
+  expect(m.display_override).toEqual(["fullscreen", "standalone"]);
+});
