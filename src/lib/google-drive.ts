@@ -18,6 +18,7 @@ export interface DriveFile {
   size?:         string;
   modifiedTime?: string;
   mimeType?:     string;
+  thumbnailLink?: string;
   /** Pasta raiz configurada de onde o ficheiro veio. */
   root?:         string;
 }
@@ -113,7 +114,7 @@ async function listChildren(
   do {
     const params = new URLSearchParams({
       q:        `'${parentId}' in parents and ${mimeFilter} and trashed=false`,
-      fields:   "nextPageToken,files(id,name,size,modifiedTime,mimeType)",
+      fields:   "nextPageToken,files(id,name,size,modifiedTime,mimeType,thumbnailLink)",
       pageSize: "1000",
       ...driveParams(sharedDriveId),
       ...(pageToken ? { pageToken } : {}),
@@ -144,8 +145,10 @@ async function listChildren(
  */
 export async function listDriveEpubs(
   params: ListDriveEpubsParams,
+  ext: "epub" | "pdf" = "epub",
 ): Promise<{ files: DriveFile[]; token: string; warnings: string[] }> {
   const { clientEmail, privateKey, sharedDriveId } = params;
+  const mime = ext === "pdf" ? "application/pdf" : "application/epub+zip";
   const folderIds = parseFolderIds(params.folderId);
   const folderId = folderIds.length > 0;
   const warnings: string[] = [];
@@ -171,7 +174,7 @@ export async function listDriveEpubs(
   // Se não tiver folderId configurado, pesquisa global na drive
   if (!folderId) {
     const params2 = new URLSearchParams({
-      q:        "name contains '.epub' and trashed=false",
+      q:        `name contains '.${ext}' and trashed=false`,
       fields:   "nextPageToken,files(id,name,size,modifiedTime,mimeType)",
       pageSize: "1000",
       ...driveParams(sharedDriveId),
@@ -181,7 +184,7 @@ export async function listDriveEpubs(
       const res  = await fetch(`${DRIVE_API}/files?${params2}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       for (const f of (data.files ?? []) as DriveFile[]) {
-        if (f.name.toLowerCase().endsWith(".epub")) allFiles.set(f.id, f);
+        if (f.name.toLowerCase().endsWith(`.${ext}`)) allFiles.set(f.id, f);
       }
       pt = data.nextPageToken;
       if (pt) params2.set("pageToken", pt);
@@ -208,14 +211,14 @@ export async function listDriveEpubs(
           // Uma única query por pasta: traz subpastas E ficheiros EPUB
           const all = await listChildren(
             token, parentId,
-            `(mimeType='${FOLDER_MIME}' or mimeType='application/epub+zip' or name contains '.epub')`,
+            `(mimeType='${FOLDER_MIME}' or mimeType='${mime}' or name contains '.${ext}')`,
             sharedDriveId,
           );
           for (const item of all) {
             if (item.mimeType === FOLDER_MIME) {
               queue.push(item.id);
               rootOf.set(item.id, rootOf.get(parentId) ?? parentId);
-            } else if (item.name.toLowerCase().endsWith(".epub") && !allFiles.has(item.id)) {
+            } else if (item.name.toLowerCase().endsWith(`.${ext}`) && !allFiles.has(item.id)) {
               allFiles.set(item.id, { ...item, root: rootOf.get(parentId) ?? parentId });
             }
           }
@@ -293,4 +296,20 @@ export async function downloadPartialWithConfig(fileId: string, bytes: number): 
   const config = getServerConfig();
   const token  = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
   return downloadFromDrivePartial(fileId, token, bytes);
+}
+
+/** Abre um ficheiro do Drive como stream (sem o carregar todo para a memória; sem limite de tamanho da resposta). */
+export async function openDriveStream(fileId: string): Promise<Response> {
+  const { getServerConfig } = await import("@/lib/env");
+  const config = getServerConfig();
+  const token = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
+  return fetch(`${DRIVE_API}/files/${encodeURIComponent(fileId)}?alt=media&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
+}
+
+/** Miniatura (primeira página) que o Drive gera para um ficheiro, em ~240px. */
+export async function fetchDriveThumbnail(url: string): Promise<Response> {
+  const { getServerConfig } = await import("@/lib/env");
+  const config = getServerConfig();
+  const token = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
+  return fetch(url.replace(/=s\d+$/, "=s320"), { headers: { Authorization: `Bearer ${token}` } });
 }

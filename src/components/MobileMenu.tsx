@@ -7,6 +7,7 @@ import {
   Check,
   Download,
   FileOutput,
+  FileText,
   HardDrive,
   Image as ImageIcon,
   LogOut,
@@ -304,6 +305,10 @@ export function MobileMenu({
               <a href="/offline" className={rowClass}>
                 <HardDrive size={18} />
                 Biblioteca offline
+              </a>
+              <a href="/pdf" className={`${rowClass} mt-3`}>
+                <FileText size={18} />
+                Livros em PDF
               </a>
               <a href="/converter" className={`${rowClass} mt-3`}>
                 <FileOutput size={18} />
