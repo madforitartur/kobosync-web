@@ -14,7 +14,7 @@ export function AppBoot() {
     const touch = "ontouchstart" in window || navigator.maxTouchPoints > 0 || window.innerWidth < 1024;
     if (!touch || !loadSettings().autoFullscreen) return;
     const go = () => {
-      if (document.fullscreenElement || !loadSettings().autoFullscreen) return;
+      if (document.fullscreenElement || window.matchMedia("(display-mode: fullscreen)").matches || !loadSettings().autoFullscreen) return;
       document.documentElement.requestFullscreen?.({ navigationUI: "hide" }).catch(() => {});
     };
     window.addEventListener("pointerup", go, { once: true });
