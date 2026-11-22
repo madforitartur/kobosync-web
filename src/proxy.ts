@@ -5,6 +5,7 @@ const PUBLIC_PREFIXES = [
   "/login",
   "/api/auth/",
   "/api/ping", // usado pelo cron; só devolve uma contagem
+  "/api/cron/", // cron da Vercel; protegido por CRON_SECRET
   "/receber", // página aberta no browser do Kobo (sem PIN)
   "/api/receber/new",
   "/api/receber/poll",

@@ -30,10 +30,9 @@ export default function SettingsPage() {
   const [editing, setEditing] = useState<{ id: string; name: string; pin: string } | null>(null);
   const [curPin, setCurPin] = useState("");
   const [myPin, setMyPin] = useState("");
-  const [drive, setDrive] = useState<{ folders: { id: string; name: string; label?: string; kind?: "epub" | "pdf" }[]; envFolders: string[]; serviceEmail: string } | null>(null);
+  const [drive, setDrive] = useState<{ folders: { id: string; name: string; label?: string }[]; envFolders: string[]; serviceEmail: string } | null>(null);
   const [link, setLink] = useState("");
   const [linkName, setLinkName] = useState("");
-  const [linkKind, setLinkKind] = useState<"epub" | "pdf">("epub");
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -142,7 +141,7 @@ export default function SettingsPage() {
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
                         <a className="block truncate font-bold text-primary underline-offset-2 hover:underline" href={`https://drive.google.com/drive/folders/${id}`} target="_blank" rel="noreferrer">{shown}</a>
-                        <span className="block truncate text-xs text-on-surface-variant">{st?.kind === "pdf" ? "PDF · " : ""}{st?.label && st.name !== st.label ? `Drive: ${st.name} · ` : ""}{fromEnv ? "definida na Vercel" : id.slice(0, 10) + "…"}</span>
+                        <span className="block truncate text-xs text-on-surface-variant">{st?.label && st.name !== st.label ? `Drive: ${st.name} · ` : ""}{fromEnv ? "definida na Vercel" : id.slice(0, 10) + "…"}</span>
                       </div>
                       <div className="flex shrink-0 gap-1">
                         <button aria-label={`Dar nome a ${shown}`} onClick={() => setRenaming({ id, label: st?.label ?? "" })} className="rounded-lg p-2 hover:bg-surface-container"><Pencil size={17} /></button>
@@ -155,18 +154,12 @@ export default function SettingsPage() {
                 </li>
               );
             })}
-            {drive.envFolders.length + drive.folders.length === 0 && <li className="text-sm text-on-surface-variant">Sem pasta definida: a app procura EPUBs em toda a Drive acessível.</li>}
+            {drive.envFolders.length + drive.folders.length === 0 && <li className="text-sm text-on-surface-variant">Sem pasta definida: a app procura livros em toda a Drive acessível.</li>}
           </ul>
-          <form className="mt-4 space-y-2 border-t border-outline-variant pt-4" onSubmit={(e) => { e.preventDefault(); run(async () => { const r = await api("/api/drive-folders", "POST", { link, label: linkName, kind: linkKind }); setLink(""); setLinkName(""); return linkKind === "pdf" ? `Pasta de PDFs "${linkName.trim() || r.added.name}" adicionada. Os livros aparecem em "Livros em PDF" no menu.` : `Pasta "${linkName.trim() || r.added.name}" adicionada. Volta à biblioteca e carrega em sincronizar.`; }); }}>
+          <form className="mt-4 space-y-2 border-t border-outline-variant pt-4" onSubmit={(e) => { e.preventDefault(); run(async () => { const r = await api("/api/drive-folders", "POST", { link, label: linkName }); setLink(""); setLinkName(""); return `Pasta "${linkName.trim() || r.added.name}" adicionada. Os EPUBs entram na biblioteca e os PDFs em "Livros em PDF", automaticamente.`; }); }}>
             <p className="flex items-center gap-2 text-sm font-bold text-on-surface-variant"><FolderPlus size={16} /> Adicionar pasta</p>
             <input className={field} placeholder="https://drive.google.com/drive/folders/…" value={link} onChange={(e) => setLink(e.target.value)} aria-label="Link da pasta do Drive" />
             <input className={field} maxLength={40} placeholder="Nome para a reconheceres (opcional)" value={linkName} onChange={(e) => setLinkName(e.target.value)} aria-label="Nome da nova pasta" />
-            <label className="flex items-center gap-2 text-sm font-semibold">Esta pasta tem
-              <select className={`${field} !w-auto`} value={linkKind} onChange={(e) => setLinkKind(e.target.value as "epub" | "pdf")} aria-label="Tipo de livros da pasta">
-                <option value="epub">Livros EPUB (biblioteca e Kobo)</option>
-                <option value="pdf">Livros PDF (converter em EPUB)</option>
-              </select>
-            </label>
             <button disabled={busy || link.trim().length < 10} className={`${btn} bg-primary text-on-primary`}><Plus size={16} /> Adicionar</button>
           </form>
         </section>

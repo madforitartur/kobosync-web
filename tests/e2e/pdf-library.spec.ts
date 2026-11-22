@@ -45,9 +45,28 @@ test("lista PDFs separadamente, filtra e converte para EPUB", async ({ page, bro
   expect(await zip.file("mimetype")!.async("string")).toBe("application/epub+zip");
 });
 
-test("sem pastas de PDF mostra a indicação para o administrador", async ({ page }) => {
+test("sem PDFs mostra a indicação", async ({ page }) => {
   await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: false } }));
   await page.route("**/api/pdfs", (r) => r.fulfill({ json: { pdfs: [] } }));
   await page.goto("/pdf");
-  await expect(page.getByText(/Ainda não há pastas de PDFs/)).toBeVisible();
+  await expect(page.getByText(/aparecem aqui automaticamente/)).toBeVisible();
+});
+
+test("ordena os PDFs por autor", async ({ page }) => {
+  await page.route("**/api/auth/status", (r) => r.fulfill({ json: { protected: false } }));
+  await page.route("**/api/pdfs", (r) => r.fulfill({ json: { pdfs: PDFS } }));
+  await page.goto("/pdf");
+  await page.getByLabel("Ordenar PDFs").selectOption("author");
+  const titles = await page.locator("li p.line-clamp-2").allTextContents();
+  expect(titles).toEqual(["Mensagem", "Dom Casmurro"]); // Fernando Pessoa antes de Machado de Assis
+});
+
+test("a biblioteca pede a verificação automática das pastas ao abrir", async ({ page }) => {
+  const { mockApi } = await import("./mock");
+  await mockApi(page);
+  let calls = 0;
+  await page.route("**/api/sync/auto", (r) => { calls++; return r.fulfill({ json: { ran: true, newBooks: 2, found: 14 } }); });
+  await page.goto("/");
+  await expect(page.getByText(/2 livros novos encontrados no Drive/)).toBeVisible();
+  expect(calls).toBe(1);
 });

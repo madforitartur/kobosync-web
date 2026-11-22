@@ -186,6 +186,27 @@ export function LibraryApp() {
     }
   }
 
+  // Monitorização automática das pastas do Drive: ao abrir a app e sempre que volta a ficar visível (o servidor limita a 1 verificação de 10 em 10 min)
+  const coversStart = covers.start;
+  useEffect(() => {
+    if (!mounted) return;
+    let last = 0;
+    const check = async () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5 * 60_000) return;
+      last = Date.now();
+      try {
+        const d = await (await fetch("/api/sync/auto", { method: "POST" })).json();
+        if (d?.ran && d.newBooks > 0) {
+          bump(); coversStart();
+          setStatus({ type: "success", message: `${d.newBooks} livro${d.newBooks !== 1 ? "s" : ""} novo${d.newBooks !== 1 ? "s" : ""} encontrado${d.newBooks !== 1 ? "s" : ""} no Drive.` });
+        }
+      } catch { /* sem ligação: tenta na próxima vez */ }
+    };
+    check();
+    document.addEventListener("visibilitychange", check);
+    return () => document.removeEventListener("visibilitychange", check);
+  }, [mounted, bump, coversStart]);
+
   async function syncLibraryAndCovers() {
     await sync.syncLibrary();
     covers.start(); // livros novos → capas novas

@@ -16,6 +16,7 @@ export default function PdfLibraryPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState("");
+  const [order, setOrder] = useState<"title" | "author">("title");
   const [sel, setSel] = useState<Set<string>>(new Set());
   const [convertIds, setConvertIds] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,12 +32,21 @@ export default function PdfLibraryPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
+  // Monitorização: volta a ler as pastas de 2 em 2 minutos e quando a página volta a ficar visível
+  useEffect(() => {
+    const quiet = async () => { try { const d = await (await fetch("/api/pdfs")).json(); if (Array.isArray(d.pdfs)) setPdfs(d.pdfs); } catch { /* mantém a lista */ } };
+    const t = window.setInterval(() => { if (document.visibilityState === "visible") quiet(); }, 120_000);
+    const v = () => { if (document.visibilityState === "visible") quiet(); };
+    document.addEventListener("visibilitychange", v);
+    return () => { window.clearInterval(t); document.removeEventListener("visibilitychange", v); };
+  }, []);
 
   const folders = useMemo(() => [...new Map((pdfs ?? []).map((p) => [p.folder, p.folderName])).entries()], [pdfs]);
   const shown = useMemo(() => {
     const t = norm(q.trim());
-    return (pdfs ?? []).filter((p) => (!folder || p.folder === folder) && (!t || norm(`${p.title} ${p.author ?? ""}`).includes(t)));
-  }, [pdfs, q, folder]);
+    const list = (pdfs ?? []).filter((p) => (!folder || p.folder === folder) && (!t || norm(`${p.title} ${p.author ?? ""}`).includes(t)));
+    return order === "author" ? [...list].sort((a, b) => (a.author ?? "￿").localeCompare(b.author ?? "￿", "pt") || a.title.localeCompare(b.title, "pt")) : list;
+  }, [pdfs, q, folder, order]);
 
   const toggle = (id: string) => setSel((cur) => { const n = new Set(cur); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const chosen = (pdfs ?? []).filter((p) => sel.has(p.id));
@@ -59,6 +69,10 @@ export default function PdfLibraryPage() {
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Pesquisar PDFs" aria-label="Pesquisar PDFs" className="w-full rounded-lg border border-outline-variant bg-background py-2 pl-9 pr-3 text-sm outline-none focus:border-primary" />
         </div>
+        <select value={order} onChange={(e) => setOrder(e.target.value as "title" | "author")} aria-label="Ordenar PDFs" className="rounded-lg border border-outline-variant bg-background px-3 py-2 text-sm">
+          <option value="title">Por nome</option>
+          <option value="author">Por autor</option>
+        </select>
         {shown.length > 0 && (
           <button onClick={() => setSel(new Set(shown.map((p) => p.id)))} className="rounded-lg border border-outline-variant px-3 py-2 text-sm font-bold text-primary">Selecionar todos ({shown.length})</button>
         )}
@@ -75,7 +89,7 @@ export default function PdfLibraryPage() {
       {error && <p role="alert" className="mt-6 text-sm font-semibold text-error">{error}</p>}
       {pdfs && pdfs.length === 0 && !error && (
         <p className="mt-8 rounded-xl border border-outline-variant p-5 text-center text-sm text-on-surface-variant">
-          Ainda não há pastas de PDFs. O administrador pode adicionar uma pasta do Google Drive em <Link href="/definicoes" className="font-bold text-primary underline">Definições</Link> escolhendo &ldquo;Livros PDF&rdquo;.
+          Ainda não há pastas de PDFs. Os PDFs das pastas do Google Drive aparecem aqui automaticamente; o administrador pode adicionar pastas em <Link href="/definicoes" className="font-bold text-primary underline">Definições</Link>.
         </p>
       )}
 
