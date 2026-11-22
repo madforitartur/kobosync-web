@@ -54,7 +54,8 @@ function exitFs() {
 }
 function isFsOn() {
   const d = document as Document & { webkitFullscreenElement?: Element | null };
-  return !!(document.fullscreenElement || d.webkitFullscreenElement);
+  // app instalada com manifesto "fullscreen": já está em ecrã completo
+  return !!(document.fullscreenElement || d.webkitFullscreenElement || window.matchMedia("(display-mode: fullscreen)").matches);
 }
 
 function formatMinutes(min: number): string {

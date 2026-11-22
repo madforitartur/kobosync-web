@@ -59,6 +59,6 @@ test("biblioteca: botão Instalar aplicação no PC", async ({ page }) => {
 
 test("manifesto e ícones da PWA estão acessíveis", async ({ request }) => {
   const m = await (await request.get("/manifest.json")).json();
-  expect(m.display).toBe("standalone");
+  expect(m.display).toBe("fullscreen");
   for (const i of m.icons) expect((await request.get(i.src)).ok()).toBe(true);
 });
