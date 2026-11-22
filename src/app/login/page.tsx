@@ -45,10 +45,10 @@ function UserBook({ p, w = 132, lifted = false, flat = false, onClick }: { p: Pr
         <i className="kb-upages" />
         <span className="kb-ucover" style={{ background: `linear-gradient(155deg, ${lighten(c, 8)} 0%, ${c} 45%, ${darken(c, 35)} 100%)` }}>
           <span className="kb-uframe" />
-          <span className="font-display-lg text-[44px] font-bold leading-none" style={{ color: "#f3e3bd", textShadow: "0 2px 3px rgba(0,0,0,.45)" }}>{p.name.charAt(0).toUpperCase()}</span>
-          <span className="mt-3 block h-px w-10" style={{ background: "#e0bd73" }} />
-          <span className="mt-3 max-w-[82%] break-words text-center font-display-lg text-[15px] font-bold leading-tight" style={{ color: "#f8efd8" }}>{p.name}</span>
-          {p.role === "admin" && <span className="absolute bottom-3 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest" style={{ color: "#e0bd73" }}><ShieldCheck size={10} /> Admin</span>}
+          <span className="font-display-lg text-[34px] font-bold leading-none sm:text-[44px]" style={{ color: "#f3e3bd", textShadow: "0 2px 3px rgba(0,0,0,.45)" }}>{p.name.charAt(0).toUpperCase()}</span>
+          <span className="mt-2 block h-px w-8" style={{ background: "#e0bd73" }} />
+          <span className="mt-2 max-w-[78%] break-words text-center font-display-lg text-[13px] sm:text-[15px] font-bold leading-tight" style={{ color: "#f8efd8" }}>{p.name}</span>
+          {p.role === "admin" && <span className="absolute bottom-2 flex items-center gap-1 text-[8px] font-bold uppercase tracking-widest" style={{ color: "#e0bd73" }}><ShieldCheck size={10} /> Admin</span>}
         </span>
       </span>
     </Tag>
@@ -77,9 +77,9 @@ function LoginForm() {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [perRow, setPerRow] = useState(4);
+  const [perRow, setPerRow] = useState(5);
   useEffect(() => {
-    const fit = () => setPerRow(window.innerWidth < 520 ? 2 : window.innerWidth < 760 ? 3 : 4);
+    const fit = () => setPerRow(window.innerWidth < 520 ? 3 : window.innerWidth < 760 ? 4 : 5);
     fit();
     window.addEventListener("resize", fit);
     return () => window.removeEventListener("resize", fit);
@@ -134,8 +134,8 @@ function LoginForm() {
           <h1 className="mb-6 text-center font-display-lg text-xl font-bold" style={{ color: "#f3e3bd", textShadow: "0 2px 6px rgba(0,0,0,.7)" }}>Quem vai ler?</h1>
           {rows.map((row, ri) => (
             <div key={ri} className="relative pt-10">
-              <div className="relative z-[1] flex flex-wrap items-end justify-center gap-x-9 gap-y-0 px-4">
-                {row.map((p) => <UserBook key={p.id} p={p} w={perRow === 2 ? 120 : 132} onClick={() => { setChosen(p); setPin(""); setError(null); }} />)}
+              <div className="relative z-[1] flex flex-wrap items-end justify-center gap-x-4 gap-y-0 px-2 sm:gap-x-9 sm:px-4">
+                {row.map((p) => <UserBook key={p.id} p={p} w={perRow === 3 ? 84 : 108} onClick={() => { setChosen(p); setPin(""); setError(null); }} />)}
               </div>
               <div className="kb-plank" aria-hidden />
             </div>
@@ -148,7 +148,7 @@ function LoginForm() {
         <form onSubmit={submit} className="px-2">
           <div className="relative pt-10">
             <div className="relative z-[1] flex flex-wrap items-end justify-center gap-x-10 gap-y-6 px-4 pb-1">
-              <UserBook p={chosen} w={150} flat />
+              <UserBook p={chosen} w={perRow === 3 ? 96 : 120} flat />
               <div className="w-full max-w-[17rem] rounded-md p-5" style={{ background: "linear-gradient(180deg,rgba(38,26,18,.94),rgba(24,16,11,.94))", boxShadow: "inset 0 0 0 1.5px #c9a25a, 0 16px 34px rgba(0,0,0,.6)" }}>
                 {profiles.length > 1 && (
                   <button type="button" onClick={() => { setChosen(null); setError(null); }} className="mb-3 inline-flex items-center gap-1 text-sm font-semibold" style={{ color: "#e8c98a" }}>
