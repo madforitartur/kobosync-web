@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
   try {
     const cfg = getServerConfig();
     const info = await getDriveFolderInfo(cfg.googleClientEmail, cfg.googlePrivateKey, id);
-    const folders = await addStoredFolder({ ...info, label: body?.label });
+    const folders = await addStoredFolder({ ...info, label: body?.label, kind: body?.kind === "pdf" ? "pdf" : "epub" });
     return NextResponse.json({ folders, added: info }, { headers: NO_STORE });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Erro" }, { status: 400 });
