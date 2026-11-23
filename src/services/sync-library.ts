@@ -17,7 +17,7 @@ import { listDriveEpubs } from "@/lib/google-drive";
 import { allFolderIds } from "@/lib/firebase/drive-folders";
 import { insertNewBooks, countBooksWithoutCover, getAllBooksCached, patchBooks } from "@/lib/firebase/books";
 
-const stripExtension = (name: string) => name.replace(/\.epub$/i, "");
+const stripExtension = (name: string) => name.replace(/\.(epub|pdf)$/i, "");
 
 function basicMetadataFromFilename(fileName: string) {
   const name = stripExtension(fileName);
@@ -29,6 +29,10 @@ function basicMetadataFromFilename(fileName: string) {
     };
   }
   return { title: name, author: null };
+}
+
+function pdfMetadataFromFilename(fileName: string) {
+  return basicMetadataFromFilename(fileName.replace(/_/g, " ").replace(/\s{2,}/g, " "));
 }
 
 export async function syncLibrary() {
@@ -50,13 +54,33 @@ export async function syncLibrary() {
   const missing = (await getAllBooksCached(true)).filter((b) => b.drive_file_id && !b.drive_root && rootOf.has(b.drive_file_id));
   if (missing.length) await patchBooks(missing.map((b) => ({ id: b.id, drive_root: rootOf.get(b.drive_file_id as string) as string })));
 
+  // ── 2b. PDFs das mesmas pastas (biblioteca de PDFs, à parte) ──
+  let newPdfs = 0;
+  let pdfFound = 0;
+  const pdfWarnings: string[] = [];
+  try {
+    const pdf = await listDriveEpubs({
+      clientEmail: config.googleClientEmail,
+      privateKey: config.googlePrivateKey,
+      sharedDriveId: config.googleSharedDriveId,
+      folderId: (await allFolderIds(config.googleDriveFolderId)).join(","),
+    }, "pdf");
+    pdfFound = pdf.files.length;
+    newPdfs = await insertNewBooks(pdf.files, pdfMetadataFromFilename, "pdf");
+  } catch (e) {
+    pdfWarnings.push(`PDFs: ${e instanceof Error ? e.message : "erro"}.`);
+  }
+
   // ── 3. Contar livros sem capa (para informar o utilizador) ──
   const withoutCover = await countBooksWithoutCover();
 
-  const warn = warnings.length ? ` Atenção: ${warnings.join(" ")}` : "";
+  const warn = [...warnings, ...pdfWarnings].length ? ` Atenção: ${[...warnings, ...pdfWarnings].join(" ")}` : "";
+  const pdfNote = newPdfs > 0 ? ` ${newPdfs} PDF${newPdfs !== 1 ? "s" : ""} novo${newPdfs !== 1 ? "s" : ""}.` : "";
   return {
     found: files.length,
     newBooks: newCount,
+    newPdfs,
+    pdfFound,
     withoutCover,
     warnings,
     message:
@@ -64,6 +88,6 @@ export async function syncLibrary() {
         ? `${newCount} livro${newCount !== 1 ? "s" : ""} novo${newCount !== 1 ? "s" : ""} adicionado${newCount !== 1 ? "s" : ""}.${withoutCover ? ` ${withoutCover} sem capa — clica em "Capas" para processar.` : ""}`
         : withoutCover
           ? `Sem livros novos. ${withoutCover} sem capa — clica em "Capas" para processar.`
-          : "Biblioteca actualizada.") + warn,
+          : "Biblioteca actualizada.") + pdfNote + warn,
   };
 }

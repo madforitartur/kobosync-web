@@ -12,7 +12,7 @@ export async function POST() {
   try {
     if (!(await claimAutoSync(MIN_GAP))) return NextResponse.json({ ran: false });
     const r = await syncLibrary();
-    return NextResponse.json({ ran: true, newBooks: r.newBooks, found: r.found });
+    return NextResponse.json({ ran: true, newBooks: r.newBooks + r.newPdfs, newPdfs: r.newPdfs, found: r.found });
   } catch (e) {
     return NextResponse.json({ ran: false, error: e instanceof Error ? e.message : "Erro" }, { status: 500 });
   }

@@ -43,6 +43,8 @@ import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
 import { StatusToast } from "./StatusToast";
 import { Toolbar, type ViewMode } from "./Toolbar";
+import { FormatSwitch, type Format } from "./FormatSwitch";
+import { PdfConvertDialog } from "@/components/pdf/PdfConvertDialog";
 
 type View = DesktopView;
 const DESKTOP_PAGE_SIZE = 30;
@@ -81,19 +83,24 @@ export function LibraryApp() {
   const [isProtected, setIsProtected] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [format, setFormat] = useStored<Format>("kobosync:format", "epub");
+  const pdf = format === "pdf";
+  const [convertBooks, setConvertBooks] = useState<Book[] | null>(null);
   const [exploreTab, setExploreTab] = useState<"series" | "authors" | "collections">("series");
   const searchRef = useRef<HTMLInputElement>(null);
   const lastIndex = useRef<number | null>(null);
 
   const reading = useReadingList();
-  const selection = useSelection();
+  const selEpub = useSelection();
+  const selPdf = useSelection("pdf");
+  const selection = pdf ? selPdf : selEpub;
   const collections = useCollections();
   const progress = useProgressMap();
-  const facets = useFacets(reloadKey);
+  const facets = useFacets(reloadKey, format);
   const [koboSent, setKoboSent] = useStored<Record<string, number>>("kobosync:kobo-sent", {}, "koboSent");
   const sync = useSyncActions(setStatus, bump);
   const offline = useOffline();
-  const covers = useCoverManager();
+  const covers = useCoverManager(format);
 
   // ── Consulta ──────────────────────────────────────────────────────────────
   const activeCollection = filters.collectionId ? collections.collections.find((c) => c.id === filters.collectionId) : undefined;
@@ -115,12 +122,12 @@ export function LibraryApp() {
   const pageSize = touch ? MOBILE_PAGE_SIZE : DESKTOP_PAGE_SIZE;
 
   const query = useBooksQuery({
-    q, sort, filters, page, limit: pageSize, onlyIds, progress: progress.map,
-    finishedRatio: FINISHED_RATIO, reloadKey, enabled: listing,
+    q, sort, filters, page, limit: pageSize, onlyIds, progress: pdf ? {} : progress.map,
+    finishedRatio: FINISHED_RATIO, reloadKey, enabled: listing, format,
   });
-  const selectedBooks = useSelectedBooks(selection.list, !!mounted, reloadKey);
+  const selectedBooks = useSelectedBooks(selection.list, !!mounted, reloadKey, format);
 
-  useEffect(() => { setPage(1); }, [q, sort, filters, view]);
+  useEffect(() => { setPage(1); }, [q, sort, filters, view, format]);
   useEffect(() => { if (view === "selected" && selection.list.length === 0) setView("library"); }, [view, selection.list.length]);
   useEffect(() => { if (page > query.totalPages && !query.loading) setPage(query.totalPages); }, [page, query.totalPages, query.loading]);
 
@@ -139,9 +146,11 @@ export function LibraryApp() {
     setMounted(true);
     // Atalhos da app instalada: /?view=reading|series|authors|collections|selected
     const wanted = new URLSearchParams(window.location.search).get("view");
+    if (new URLSearchParams(window.location.search).get("formato") === "pdf") setFormat("pdf");
     if (wanted && ["reading", "series", "authors", "collections", "selected"].includes(wanted)) setView(wanted as View);
     fetch("/api/auth/status").then((r) => r.json()).then((d) => { setIsProtected(!!d.protected); setUserName(d.protected ? d.user?.name ?? null : null); setIsAdmin(d.user?.role === "admin"); }).catch(() => {});
     import("@/lib/cloud-sync").then((m) => m.startCloudSync());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleInstall() {
@@ -284,7 +293,18 @@ export function LibraryApp() {
   }, [touch, listing, visible, selection, selectMode]);
 
   // ── Navegação ─────────────────────────────────────────────────────────────
+  function changeFormat(f: Format) {
+    if (f === format) return;
+    setFormat(f);
+    setView("library");
+    setFilters(EMPTY_FILTERS);
+    setSelectMode(false);
+    setBookMenu(null);
+    setDetail(null);
+    window.scrollTo({ top: 0 });
+  }
   function go(v: View) {
+    if (pdf && v !== "library" && v !== "selected") setFormat("epub"); // séries, autores, coleções e leitura são dos EPUBs
     setView(v);
     if (v !== "library") setFilters((f) => ({ ...f, collectionId: undefined }));
     if (v === "library") setFilters((f) => ({ ...f, collectionId: undefined }));
@@ -313,7 +333,7 @@ export function LibraryApp() {
 
   const mobileTab: Tab = view === "reading" ? "reading" : view === "selected" ? "selected" : view === "library" ? "library" : "explore";
   function onMobileTab(tab: Tab) {
-    if (tab === "explore") { setView(exploreTab); setSearchOpen(false); }
+    if (tab === "explore") { if (pdf) setFormat("epub"); setView(exploreTab); setSearchOpen(false); }
     else go(tab as View);
   }
   function onMobileExploreTab(t: "series" | "authors" | "collections") {
@@ -339,6 +359,11 @@ export function LibraryApp() {
     setShareOpen(true);
   }
   function openKobo() {
+    if (pdf) {
+      if (selectedBooks.length === 0) { setStatus({ type: "error", message: "Nenhum PDF selecionado para converter." }); return; }
+      setConvertBooks(selectedBooks);
+      return;
+    }
     if (selection.list.length === 0) { setStatus({ type: "error", message: "Nenhum livro selecionado para enviar." }); return; }
     setKoboOpen(true);
   }
@@ -362,7 +387,7 @@ export function LibraryApp() {
     : filters.series ? filters.series
     : filters.author ? filters.author
     : q.trim() ? `“${q.trim()}”`
-    : "Biblioteca";
+    : pdf ? "Biblioteca PDF" : "Biblioteca";
 
   const gridStyle = !touch && viewMode === "grid"
     ? { gridTemplateColumns: `repeat(auto-fill, minmax(${DENSITY_MIN_WIDTH[density] ?? 165}px, 1fr))` }
@@ -447,11 +472,11 @@ export function LibraryApp() {
           density={density} onDensity={setDensity} selectMode={selectMode}
           onToggleSelectMode={() => setSelectMode((v) => !v)} hasQuery={!!q.trim()} collections={collections.collections}
         />
-        {(selectMode || view === "selected") && (
+        {(selectMode || view === "selected" || (pdf && selection.list.length > 0)) && (
           <SelectionBar
             count={selection.list.length} pageCount={visible.length} allOnPage={allOnPage}
             onSelectPage={toggleSelectPage} onSelectAllResults={selectAllResults} totalResults={query.total}
-            onClear={selection.clear} onKobo={openKobo} onShare={openShare} onCollection={() => setPickerIds(selection.list)}
+            onClear={selection.clear} onKobo={openKobo} onShare={openShare} onCollection={() => setPickerIds(selection.list)} pdf={pdf}
           />
         )}
         {books}
@@ -475,7 +500,7 @@ export function LibraryApp() {
         offlineSaved={bookMenu ? offline.saved.has(bookMenu.book.id) : false}
         offlineSupported={offline.supported} onToggleOffline={toggleOffline}
         inCollectionName={activeCollection?.name}
-        onRead={readBook}
+        onRead={readBook} pdf={pdf} onConvert={(b) => { setBookMenu(null); setConvertBooks([b]); }}
         onToggleSelect={(b) => { selection.toggle(b.id); setBookMenu(null); }}
         onDetails={(b) => { setBookMenu(null); setDetail(b); }}
         onCollections={(b) => { setBookMenu(null); setPickerIds([b.id]); }}
@@ -494,6 +519,7 @@ export function LibraryApp() {
         onRead={readBook} onToggleSelect={(b) => selection.toggle(b.id)}
         onCollections={(b) => setPickerIds([b.id])} onToggleFinished={toggleFinished}
         onFilterAuthor={(a) => openGroup("authors", a)} onFilterSeries={(s) => openGroup("series", s)}
+        pdf={pdf} onConvert={(b) => { setDetail(null); setConvertBooks([b]); }}
       />
       <FilterPanel
         open={filtersOpen} onClose={() => setFiltersOpen(false)} touch={touch} filters={filters} onChange={setFilters}
@@ -512,6 +538,7 @@ export function LibraryApp() {
         open={shareOpen} onClose={() => setShareOpen(false)} touch={touch}
         books={selectedBooks} total={selection.list.length} onDone={(message, type) => setStatus({ type, message })}
       />
+      <PdfConvertDialog open={!!convertBooks} onClose={() => setConvertBooks(null)} touch={touch} pdfs={convertBooks ?? []} />
       <StatusToast status={status} onClose={() => setStatus(null)} touch={touch} />
     </>
   );
@@ -563,6 +590,7 @@ export function LibraryApp() {
             )}
             <div className="mb-3 flex items-baseline justify-between gap-3">
               <h1 className="min-w-0 truncate font-display-lg text-[22px] font-bold text-primary">{heading}</h1>
+              {listing && <FormatSwitch value={format} onChange={changeFormat} compact />}
               <span className="shrink-0 text-xs text-on-surface-variant">{subtitle}</span>
             </div>
             <CoversBanner state={covers.state} onStop={covers.stop} onRetry={covers.start} />
@@ -575,7 +603,7 @@ export function LibraryApp() {
             canInstall={pwa.canInstall} isStandalone={isStandalone} onInstall={handleInstall}
             onLogout={isProtected ? logout : undefined} userName={userName} isAdmin={isAdmin}
           />
-          <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} />
+          <MobileBottomNav activeTab={mobileTab} onTabChange={onMobileTab} selectedCount={selection.list.length} readingCount={reading.entries.length} onKobo={openKobo} pdf={pdf} />
           {overlays}
         </div>
       </div>
@@ -607,7 +635,10 @@ export function LibraryApp() {
           <main className="px-8 py-7">
             <div className="mb-5 flex items-end justify-between gap-4 border-b border-outline-variant pb-4">
               <div className="min-w-0">
-                <h1 className="truncate font-display-lg text-[32px] font-bold text-primary">{heading}</h1>
+                <div className="flex min-w-0 items-center gap-4">
+                  <h1 className="truncate font-display-lg text-[32px] font-bold text-primary">{heading}</h1>
+                  {listing && <FormatSwitch value={format} onChange={changeFormat} />}
+                </div>
                 <p className="mt-1 text-sm text-on-surface-variant" aria-live="polite">{subtitle}</p>
               </div>
             </div>
@@ -615,7 +646,7 @@ export function LibraryApp() {
             {main}
           </main>
         </div>
-        {selection.list.length > 0 && (
+        {selection.list.length > 0 && !pdf && (
           <SelectionDock
             books={selectedBooks.slice(0, 40)} count={selection.list.length}
             onRemove={(id) => selection.remove([id])} onClear={selection.clear}

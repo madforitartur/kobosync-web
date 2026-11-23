@@ -15,7 +15,9 @@ import type { Book } from "@/types/library";
  * As capas ficam noutra colecção ("covers"), 1 documento por livro,
  * lidas só quando o browser pede a imagem.
  */
-const COLLECTION = "library";
+export type Format = "epub" | "pdf";
+/** EPUBs em "library"; PDFs numa coleção própria com o mesmo formato (e as capas na coleção "covers"). */
+const COLLECTIONS: Record<Format, string> = { epub: "library", pdf: "library_pdf" };
 const CHUNK_SIZE = 200;
 
 type Chunk = { id: string; books: Book[] };
@@ -26,26 +28,25 @@ type Loaded = {
   ts: number;
 };
 
-let cache: Loaded | null = null;
-let inflight: Promise<Loaded> | null = null;
+type Slot = { cache: Loaded | null; inflight: Promise<Loaded> | null };
+const slots: Record<Format, Slot> = { epub: { cache: null, inflight: null }, pdf: { cache: null, inflight: null } };
 const CACHE_TTL_MS = 60_000;
 
-export function invalidateBooksCache() {
-  cache = null;
-  inflight = null;
+export function invalidateBooksCache(fmt?: Format) {
+  for (const f of fmt ? [fmt] : (["epub", "pdf"] as Format[])) slots[f] = { cache: null, inflight: null };
 }
 
 const chunkName = (n: number) => `c${String(n).padStart(4, "0")}`;
 
-async function loadChunks(): Promise<Chunk[]> {
-  const snap = await getDb().collection(COLLECTION).get();
+async function loadChunks(fmt: Format): Promise<Chunk[]> {
+  const snap = await getDb().collection(COLLECTIONS[fmt]).get();
   return snap.docs
     .map((d) => ({ id: d.id, books: ((d.data().books ?? []) as Book[]) }))
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function fetchAll(): Promise<Loaded> {
-  const chunks = await loadChunks();
+async function fetchAll(fmt: Format): Promise<Loaded> {
+  const chunks = await loadChunks(fmt);
   const chunkOf = new Map<string, string>();
   const books: Book[] = [];
   for (const chunk of chunks) {
@@ -58,26 +59,27 @@ async function fetchAll(): Promise<Loaded> {
   return { books, chunkOf, ts: Date.now() };
 }
 
-async function getLoaded(forceRefresh = false): Promise<Loaded> {
-  if (!forceRefresh && cache && Date.now() - cache.ts < CACHE_TTL_MS) return cache;
-  if (!forceRefresh && inflight) return inflight;
+async function getLoaded(forceRefresh = false, fmt: Format = "epub"): Promise<Loaded> {
+  const slot = slots[fmt];
+  if (!forceRefresh && slot.cache && Date.now() - slot.cache.ts < CACHE_TTL_MS) return slot.cache;
+  if (!forceRefresh && slot.inflight) return slot.inflight;
 
-  inflight = fetchAll().then((loaded) => {
-    cache = loaded;
-    inflight = null;
+  slot.inflight = fetchAll(fmt).then((loaded) => {
+    slot.cache = loaded;
+    slot.inflight = null;
     return loaded;
   });
-  return inflight;
+  return slot.inflight;
 }
 
 /** Livros visíveis na app (sem os escondidos pelo administrador). */
-async function getVisible(): Promise<Book[]> {
-  return (await getAllBooksCached()).filter((b) => !b.hidden);
+async function getVisible(fmt: Format = "epub"): Promise<Book[]> {
+  return (await getAllBooksCached(false, fmt)).filter((b) => !b.hidden);
 }
 
 /** Devolve todos os livros (cache de 60s por instância). */
-export async function getAllBooksCached(forceRefresh = false): Promise<Book[]> {
-  return (await getLoaded(forceRefresh)).books;
+export async function getAllBooksCached(forceRefresh = false, fmt: Format = "epub"): Promise<Book[]> {
+  return (await getLoaded(forceRefresh, fmt)).books;
 }
 
 // ── Pesquisa (em memória) ──────────────────────────────────────────────────
@@ -158,6 +160,8 @@ function searchBooks(all: Book[], term?: string): { books: Book[]; tokens: strin
 export type SortKey = "title" | "author" | "recent" | "series" | "size" | "relevance";
 
 export type BookQuery = {
+  /** biblioteca de EPUBs (por omissão) ou de PDFs */
+  format?: Format;
   q?: string;
   sort?: SortKey;
   author?: string;
@@ -210,7 +214,8 @@ function sortBooks(books: Book[], sort: SortKey, tokens: string[]): Book[] {
 }
 
 export async function queryBooks(query: BookQuery): Promise<{ books: Book[]; total: number }> {
-  let list = query.includeHidden ? await getAllBooksCached() : await getVisible();
+  const fmt = query.format ?? "epub";
+  let list = query.includeHidden ? await getAllBooksCached(false, fmt) : await getVisible(fmt);
   if (query.ids) {
     const wanted = new Set(query.ids);
     list = list.filter((b) => wanted.has(b.id));
@@ -259,8 +264,8 @@ function groupBy(books: Book[], pick: (b: Book) => string | null): Group[] {
   return [...map.values()].sort((a, b) => collator.compare(a.name, b.name));
 }
 
-export async function getFacets(): Promise<{ authors: Group[]; series: Group[]; languages: Group[] }> {
-  const all = await getVisible();
+export async function getFacets(fmt: Format = "epub"): Promise<{ authors: Group[]; series: Group[]; languages: Group[] }> {
+  const all = await getVisible(fmt);
   return {
     authors: groupBy(all, (b) => b.author),
     series: groupBy(all, (b) => b.series),
@@ -268,14 +273,15 @@ export async function getFacets(): Promise<{ authors: Group[]; series: Group[]; 
   };
 }
 
-export async function listBooksByIds(ids: string[], opts: { includeHidden?: boolean } = {}): Promise<Book[]> {
+export async function listBooksByIds(ids: string[], opts: { includeHidden?: boolean; format?: Format } = {}): Promise<Book[]> {
   if (ids.length === 0) return [];
   const wanted = new Set(ids);
-  return (opts.includeHidden ? await getAllBooksCached() : await getVisible()).filter((b) => wanted.has(b.id));
+  const fmt = opts.format ?? "epub";
+  return (opts.includeHidden ? await getAllBooksCached(false, fmt) : await getVisible(fmt)).filter((b) => wanted.has(b.id));
 }
 
-export async function getBookById(id: string): Promise<Book | null> {
-  const all = await getAllBooksCached();
+export async function getBookById(id: string, fmt: Format = "epub"): Promise<Book | null> {
+  const all = await getAllBooksCached(false, fmt);
   return all.find((b) => b.id === id) ?? null;
 }
 
@@ -302,9 +308,10 @@ export async function listSeries(): Promise<string[]> {
 export async function insertNewBooks(
   files: Array<{ id: string; name: string; size?: string; modifiedTime?: string; root?: string }>,
   basicMetadataFromFilename: (name: string) => { title: string; author: string | null },
+  fmt: Format = "epub",
 ): Promise<number> {
   const db = getDb();
-  const chunks = await loadChunks();
+  const chunks = await loadChunks(fmt);
   const known = new Set(chunks.flatMap((c) => c.books.map((b) => b.id)));
 
   const now = new Date().toISOString();
@@ -354,12 +361,12 @@ export async function insertNewBooks(
 
   const batch = db.batch();
   for (const [id, books] of touched) {
-    batch.set(db.collection(COLLECTION).doc(id), { books });
+    batch.set(db.collection(COLLECTIONS[fmt]).doc(id), { books });
   }
   await batch.commit();
 
-  invalidateBooksCache();
-  console.log(`[Sync] Inserted ${fresh.length} new books in ${touched.size} chunk(s)`);
+  invalidateBooksCache(fmt);
+  console.log(`[Sync] Inserted ${fresh.length} new ${fmt} books in ${touched.size} chunk(s)`);
   return fresh.length;
 }
 
@@ -377,10 +384,10 @@ export type BookPatch = {
  * Aplica alterações a vários livros. Agrupa por chunk e faz 1 transacção por
  * chunk (1 leitura + 1 escrita), por isso é barato mesmo com muitos livros.
  */
-export async function patchBooks(patches: BookPatch[]): Promise<void> {
+export async function patchBooks(patches: BookPatch[], fmt: Format = "epub"): Promise<void> {
   if (patches.length === 0) return;
   const db = getDb();
-  const { chunkOf } = await getLoaded();
+  const { chunkOf } = await getLoaded(false, fmt);
 
   const byChunk = new Map<string, Map<string, BookPatch>>();
   for (const patch of patches) {
@@ -392,7 +399,7 @@ export async function patchBooks(patches: BookPatch[]): Promise<void> {
 
   const now = new Date().toISOString();
   for (const [chunkId, group] of byChunk) {
-    const ref = db.collection(COLLECTION).doc(chunkId);
+    const ref = db.collection(COLLECTIONS[fmt]).doc(chunkId);
     await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       const books = ((snap.data()?.books ?? []) as Book[]).map((book) => {
@@ -411,7 +418,7 @@ export async function patchBooks(patches: BookPatch[]): Promise<void> {
     });
   }
 
-  invalidateBooksCache();
+  invalidateBooksCache(fmt);
 }
 
 export async function updateBookCover(id: string, cover: { cover_url: string | null }): Promise<void> {
@@ -423,12 +430,12 @@ export async function markCoverMissing(id: string): Promise<void> {
 }
 
 /** Livros sem capa e com drive_file_id (candidatos ao sync de capas). */
-export async function listBooksWithoutCover(limit?: number, forceRefresh = false): Promise<Book[]> {
-  const all = await getAllBooksCached(forceRefresh);
+export async function listBooksWithoutCover(limit?: number, forceRefresh = false, fmt: Format = "epub"): Promise<Book[]> {
+  const all = await getAllBooksCached(forceRefresh, fmt);
   const filtered = all.filter((b) => !b.cover_url && !b.cover_missing && b.drive_file_id);
   return limit ? filtered.slice(0, limit) : filtered;
 }
 
-export async function countBooksWithoutCover(forceRefresh = false): Promise<number> {
-  return (await listBooksWithoutCover(undefined, forceRefresh)).length;
+export async function countBooksWithoutCover(forceRefresh = false, fmt: Format = "epub"): Promise<number> {
+  return (await listBooksWithoutCover(undefined, forceRefresh, fmt)).length;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen, Check, FolderPlus, Info, X, CheckCheck, RotateCcw, FolderMinus, CloudOff, CloudDownload } from "lucide-react";
+import { BookOpen, Check, FolderPlus, Info, X, CheckCheck, RotateCcw, FolderMinus, CloudOff, CloudDownload, FileOutput, FileText } from "lucide-react";
 import { BookCover } from "@/components/BookCover";
 import { cleanBookTitle } from "@/lib/book-title";
 import type { Book } from "@/types/library";
@@ -26,13 +26,31 @@ type Props = {
   onCollections: (b: Book) => void;
   onToggleFinished: (b: Book) => void;
   onRemoveFromCollection?: (b: Book) => void;
+  /** biblioteca de PDFs: só converter, abrir, selecionar e detalhes */
+  pdf?: boolean;
+  onConvert?: (b: Book) => void;
 };
 
-export function BookMenu({ state, touch, selected, status, offlineSaved, offlineSupported, onToggleOffline, inCollectionName, onClose, onRead, onToggleSelect, onDetails, onCollections, onToggleFinished, onRemoveFromCollection }: Props) {
+export function BookMenu({ state, touch, selected, status, offlineSaved, offlineSupported, onToggleOffline, inCollectionName, onClose, onRead, onToggleSelect, onDetails, onCollections, onToggleFinished, onRemoveFromCollection, pdf, onConvert }: Props) {
   const book = state?.book;
   const readLabel = status === "reading" ? "Continuar a ler" : "Ler agora";
 
-  const items = book && (
+  const items = book && pdf ? (
+    <>
+      <button onClick={() => onConvert?.(book)} className="flex w-full items-center gap-3 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-on-primary">
+        <FileOutput size={18} /> Converter para EPUB
+      </button>
+      <a href={`/api/pdfs/${book.id}/file`} target="_blank" rel="noopener noreferrer" onClick={onClose} className="flex w-full items-center gap-3 rounded-xl border border-outline-variant px-4 py-3 text-sm font-bold text-on-surface hover:bg-surface-container-low">
+        <FileText size={18} /> Abrir PDF
+      </a>
+      <button onClick={() => onToggleSelect(book)} className="flex w-full items-center gap-3 rounded-xl border border-outline-variant px-4 py-3 text-sm font-bold text-on-surface hover:bg-surface-container-low">
+        <Check size={18} /> {selected ? "Remover da seleção" : "Adicionar à seleção"}
+      </button>
+      <button onClick={() => onDetails(book)} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
+        <Info size={18} /> Detalhes
+      </button>
+    </>
+  ) : book && (
     <>
       <button onClick={() => onRead(book)} className="flex w-full items-center gap-3 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-on-primary">
         <BookOpen size={18} /> {status === "reading" ? readLabel : "Ler agora"}

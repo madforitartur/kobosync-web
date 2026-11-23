@@ -306,7 +306,7 @@ export function MobileMenu({
                 <HardDrive size={18} />
                 Biblioteca offline
               </a>
-              <a href="/pdf" className={`${rowClass} mt-3`}>
+              <a href="/?formato=pdf" className={`${rowClass} mt-3`} /* eslint-disable-line @next/next/no-html-link-for-pages */>
                 <FileText size={18} />
                 Livros em PDF
               </a>

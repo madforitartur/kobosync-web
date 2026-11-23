@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "ids must be non-empty strings" }, { status: 400 });
     }
 
-    const books = await listBooksByIds(ids as string[]);
+    const books = await listBooksByIds(ids as string[], { format: body?.format === "pdf" ? "pdf" : "epub" });
 
     return NextResponse.json({
       books,

@@ -3,9 +3,10 @@ import { getFacets } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    return NextResponse.json(await getFacets(), {
+    const fmt = new URL(request.url).searchParams.get("format") === "pdf" ? "pdf" : "epub";
+    return NextResponse.json(await getFacets(fmt), {
       headers: { "Cache-Control": "private, max-age=60, stale-while-revalidate=300" },
     });
   } catch (error) {

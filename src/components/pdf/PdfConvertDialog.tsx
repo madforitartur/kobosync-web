@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, Download, FolderDown, HardDrive, Loader2, 
 import { Modal } from "@/components/library/Modal";
 import { downloadBlobs, saveBlobsToFolder, supportsFolderPicker, type NamedBlob } from "@/lib/blob-export";
 import { getBackend, writeLocal } from "@/lib/local-library";
-import type { PdfEntry } from "@/lib/pdf-library";
+export type PdfEntry = { id: string; title: string; author: string | null };
 
 type Row = { pdf: PdfEntry; status: "espera" | "a converter" | "feito" | "erro"; pct: number; label: string; error?: string; blob?: Blob; name?: string; info?: string };
 
