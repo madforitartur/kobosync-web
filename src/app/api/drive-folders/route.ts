@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-guard";
+import { track } from "@/lib/firebase/activity";
+import { currentUserId } from "@/lib/session";
 import { getServerConfig } from "@/lib/env";
 import { getDriveFolderInfo, parseFolderIds } from "@/lib/google-drive";
 import { addStoredFolder, cleanLabel, listStoredFolders, removeStoredFolder, renameStoredFolder } from "@/lib/firebase/drive-folders";
@@ -34,7 +36,9 @@ export async function PATCH(request: NextRequest) {
     await addStoredFolder({ ...info, label });
     return NextResponse.json({ folders: await listStoredFolders() }, { headers: NO_STORE });
   }
-  return NextResponse.json({ folders: await renameStoredFolder(id, label) }, { headers: NO_STORE });
+  const folders = await renameStoredFolder(id, label);
+  track({ uid: await currentUserId(), type: "admin", detail: `Pasta do Drive renomeada: ${label}` });
+  return NextResponse.json({ folders }, { headers: NO_STORE });
 }
 
 export async function POST(request: NextRequest) {
@@ -47,6 +51,7 @@ export async function POST(request: NextRequest) {
     const cfg = getServerConfig();
     const info = await getDriveFolderInfo(cfg.googleClientEmail, cfg.googlePrivateKey, id);
     const folders = await addStoredFolder({ ...info, label: body?.label });
+    track({ uid: await currentUserId(), type: "admin", detail: `Pasta do Drive adicionada: ${info.name}` });
     return NextResponse.json({ folders, added: info }, { headers: NO_STORE });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Erro" }, { status: 400 });
@@ -58,5 +63,7 @@ export async function DELETE(request: NextRequest) {
   if (denied) return denied;
   const id = parseFolderIds(request.nextUrl.searchParams.get("id"))[0];
   if (!id) return NextResponse.json({ error: "Pasta inválida." }, { status: 400 });
-  return NextResponse.json({ folders: await removeStoredFolder(id) }, { headers: NO_STORE });
+  const folders = await removeStoredFolder(id);
+  track({ uid: await currentUserId(), type: "admin", detail: `Pasta do Drive removida (${id.slice(0, 8)}…)` });
+  return NextResponse.json({ folders }, { headers: NO_STORE });
 }

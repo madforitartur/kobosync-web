@@ -38,7 +38,7 @@ export async function GET() {
       lastActivity: mine[0]?.ts ?? null,
       logins: count("login"),
       failedLogins: count("login_failed"),
-      reads: count("read"),
+      reads: count("read") + count("read_offline"),
       downloads: count("download") + count("kobo_download"),
       searches: count("search"),
       reading: reading[i].map((r) => ({ ...r, title: titles.get(r.bookId) ?? "(livro removido)" })),

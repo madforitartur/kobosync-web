@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-guard";
 import { currentUserId } from "@/lib/session";
-import { deviceFrom, listActivity, logActivity } from "@/lib/firebase/activity";
+import { CLIENT_ACTIONS, deviceFrom, listActivity, logActivity } from "@/lib/firebase/activity";
 
 export const runtime = "nodejs";
 
 /** Pesquisas feitas pelo utilizador (a app envia-as depois de ele parar de escrever). */
 export async function POST(request: NextRequest) {
   const b = await request.json().catch(() => ({}));
+  const action = CLIENT_ACTIONS.find((a) => a === b?.action);
+  if (action) {
+    await logActivity(
+      { uid: await currentUserId(), type: action, bookId: String(b?.bookId ?? "").slice(0, 80) || undefined, title: String(b?.title ?? "").slice(0, 120) || undefined, detail: String(b?.detail ?? "").slice(0, 160) || undefined, device: deviceFrom(request.headers.get("user-agent")) },
+      action === "read_offline" ? 20 * 60_000 : 0,
+    );
+    return NextResponse.json({ ok: true });
+  }
   const q = String(b?.q ?? "").trim().slice(0, 120);
   if (q.length < 2) return NextResponse.json({ ok: true });
   const scope = b?.scope === "reader" ? "no livro" : "biblioteca";

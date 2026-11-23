@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { ArrowLeft, BookOpen, Bookmark as BookmarkIcon, Copy, Loader2, Maximize, Menu, Minimize, Trash2 } from "lucide-react";
 import type { Book } from "@/types/library";
 import { combineChapters } from "@/lib/pagination";
-import { FINISHED_RATIO, clearPosition, loadPosition, savePosition } from "@/lib/reading-progress";
+import { FINISHED_RATIO, clearPosition, ensureListed, loadPosition, savePosition } from "@/lib/reading-progress";
 import { FONT_FAMILIES, FONT_PX, LINE_SPACING, TEXT_WIDTH, THEMES, type ReaderSettings } from "@/lib/reader-settings";
 import { HL_COLORS, newId, type Bookmark, type Highlight, type HlColor } from "@/lib/reader-annotations";
 import { keepAwake } from "@/lib/keep-awake";
@@ -208,6 +208,10 @@ export function ReaderScreen({ id, localPath }: { id?: string; localPath?: strin
 
   // Sincroniza posição/anotações com a nuvem também a partir do leitor
   useEffect(() => { import("@/lib/cloud-sync").then((m) => m.startCloudSync()); }, []);
+  // Leitura de livros da biblioteca offline (não passa pelo servidor, por isso comunica-se aqui)
+  useEffect(() => {
+    if (isLocal && book && data) import("@/lib/report-activity").then((m) => m.reportActivity("read_offline", { bookId, title: book.title }));
+  }, [isLocal, book, data, bookId]);
 
   useEffect(() => {
     const fn = () => setIsFs(isFsOn());
@@ -325,14 +329,21 @@ export function ReaderScreen({ id, localPath }: { id?: string; localPath?: strin
       const byOffset = sameText && root ? locate(el, root, saved.offset as number) : null;
       if (byOffset !== null) anchorRef.current = saved.offset as number;
       const top = byOffset ?? (saved.ratio !== null && max > 0 ? Math.round(saved.ratio * max) : bkRef.current ? 0 : saved.scrollTop);
+      const before = scrollPos(el);
       skipSave.current = true;
       setPos(el, top);
+      if (Math.abs(scrollPos(el) - before) < 1) skipSave.current = false; // não houve deslocação → não haverá evento de scroll a "gastar" a marca
     };
     apply();
     setRestored(true);
     const timers = [150, 600, 1500].map((ms) => window.setTimeout(() => { if (!userMoved.current) apply(); }, ms));
     return () => timers.forEach(clearTimeout);
-  }, [data, bookId, scrollMax, locate, setPos]);
+  }, [data, bookId, scrollMax, locate, setPos, scrollPos]);
+
+  // Garante que o livro aparece em "Leitura" assim que se conhecem os seus dados
+  useEffect(() => {
+    if (book && data) ensureListed(bookId, { title: book.title, author: book.author, cover_url: book.cover_url });
+  }, [book, data, bookId]);
 
   // ── Capítulo atual (a partir das secções) ──
   const currentChapterFromDom = useCallback((): number => {

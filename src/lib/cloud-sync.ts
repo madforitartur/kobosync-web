@@ -8,7 +8,7 @@ import {
   type Domain,
 } from "./local-store";
 import { SETTINGS_EVENT } from "./reader-settings";
-import { READING_EVENT } from "./reading-progress";
+import { READING_EVENT, mergeReadingLists, type ReadingEntry } from "./reading-progress";
 import { adoptUser } from "./user-session";
 
 /**
@@ -52,8 +52,25 @@ function readDomain(domain: Domain): unknown {
   return domain === "positions" ? collectPositions() : readJSON<unknown>(KEYS[domain], null);
 }
 
-function applyDomain(domain: Domain, data: unknown): void {
+/** Domínios fundidos livro a livro (nunca substituídos por inteiro). */
+const MERGE: Domain[] = ["positions", "readingList"];
+
+/** O aparelho tem algo mais recente do que a nuvem (ou que a nuvem não tem)? */
+function hasNewerLocal(domain: Domain, remoteData: unknown): boolean {
   if (domain === "positions") {
+    const remote = (remoteData ?? {}) as Record<string, Position>;
+    return Object.entries(collectPositions()).some(([id, p]) => !remote[id] || (p.timestamp ?? 0) > (remote[id].timestamp ?? 0));
+  }
+  const remote = new Map(((Array.isArray(remoteData) ? remoteData : []) as ReadingEntry[]).map((e) => [e.id, e]));
+  const local = readJSON<ReadingEntry[]>(KEYS.readingList, []);
+  return (Array.isArray(local) ? local : []).some((e) => !remote.has(e.id) || (e.updatedAt ?? 0) > (remote.get(e.id)?.updatedAt ?? 0));
+}
+
+function applyDomain(domain: Domain, data: unknown): void {
+  if (domain === "readingList") {
+    const local = readJSON<ReadingEntry[]>(KEYS.readingList, []);
+    writeJSON(KEYS.readingList, mergeReadingLists(Array.isArray(local) ? local : [], Array.isArray(data) ? (data as ReadingEntry[]) : []));
+  } else if (domain === "positions") {
     const remote = (data ?? {}) as Record<string, Position>;
     const local = collectPositions();
     for (const [id, pos] of Object.entries(remote)) {
@@ -74,6 +91,7 @@ async function push(domain: Domain): Promise<void> {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ domain, data: readDomain(domain), updatedAt: getDomainTs(domain) || Date.now() }),
+    keepalive: true, // não se perde se a app for fechada/enviada para segundo plano durante o envio
   });
   if (!res.ok) throw new Error(`push ${domain}: HTTP ${res.status}`);
 }
@@ -89,7 +107,12 @@ async function pull(): Promise<void> {
   for (const domain of ALL_DOMAINS) {
     const remote = state?.[domain];
     const localTs = getDomainTs(domain);
-    if (remote && remote.updatedAt > localTs) {
+    if (remote && MERGE.includes(domain)) {
+      // Posições e lista "Leitura": fundem-se sempre (relógios diferentes entre aparelhos não apagam leituras)
+      applyDomain(domain, remote.data);
+      if (remote.updatedAt > localTs) setDomainTs(domain, remote.updatedAt);
+      if (hasNewerLocal(domain, remote.data)) toPush.push(domain);
+    } else if (remote && remote.updatedAt > localTs) {
       applyDomain(domain, remote.data);
       setDomainTs(domain, remote.updatedAt);
       // As posições foram fundidas: se o local tinha livros mais recentes, envia de volta

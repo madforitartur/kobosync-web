@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { currentUserId } from "@/lib/session";
-import { logActivity } from "@/lib/firebase/activity";
+import { track } from "@/lib/firebase/activity";
 import { getBookById } from "@/lib/firebase/books";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 
@@ -36,7 +36,7 @@ export async function GET(
       return NextResponse.json({ error: "EPUB nao disponivel" }, { status: 404 });
     }
 
-    void logActivity({ uid: await currentUserId(), type: "download", bookId: id, title: book.title ?? undefined, detail: "EPUB" });
+    track({ uid: await currentUserId(), type: "download", bookId: id, title: book.title ?? undefined, detail: "EPUB" });
 
     const safeTitle = (book.title ?? "livro")
       .replace(/^#?\d+[\s._\-]+/, "")

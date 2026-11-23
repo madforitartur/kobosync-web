@@ -20,6 +20,13 @@ const TYPES: Record<string, { label: string; Icon: typeof LogIn; tone?: string }
   kobo_send: { label: "Enviou para o Kobo", Icon: Send },
   kobo_download: { label: "Descarregou no Kobo", Icon: Download },
   search: { label: "Pesquisou", Icon: Search },
+  read_offline: { label: "Leu offline", Icon: BookOpen },
+  share: { label: "Criou links de partilha", Icon: Send },
+  share_download: { label: "Link de partilha usado", Icon: Download },
+  pdf_open: { label: "Abriu um PDF", Icon: BookOpen },
+  pdf_convert: { label: "Converteu PDF em EPUB", Icon: Download },
+  offline_save: { label: "Guardou para offline", Icon: Download },
+  admin: { label: "Ação de administração", Icon: KeyRound },
 };
 
 const fmt = (ts: number | null) =>

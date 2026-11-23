@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { getDb } from "./admin";
 import { getUser } from "./users";
 
@@ -5,7 +6,16 @@ import { getUser } from "./users";
  * Registo de atividade (só o administrador o vê). Cada evento é um documento
  * em `activity`; os mais antigos que RETENTION_DAYS são apagados aos poucos.
  */
-export type ActivityType = "login" | "login_failed" | "logout" | "read" | "download" | "kobo_send" | "kobo_download" | "search";
+export type ActivityType =
+  | "login" | "login_failed" | "logout"
+  | "read" | "read_offline" | "download" | "search"
+  | "kobo_send" | "kobo_download"
+  | "share" | "share_download"
+  | "pdf_open" | "pdf_convert" | "offline_save"
+  | "admin";
+
+/** Ações que a própria app (no aparelho do utilizador) pode comunicar ao servidor. */
+export const CLIENT_ACTIONS = ["pdf_convert", "offline_save", "read_offline"] as const;
 
 export type ActivityEvent = {
   uid: string;
@@ -54,6 +64,18 @@ export async function logActivity(e: Omit<ActivityEvent, "ts" | "name">, dedupeM
     if (e.type === "login") void purgeOld();
   } catch {
     /* o registo nunca deve estragar a operação principal */
+  }
+}
+
+/**
+ * Regista o evento DEPOIS de enviar a resposta, mas garantindo que termina (em serverless, um
+ * "void logActivity()" solto pode ser cortado quando a resposta sai e o evento perder-se).
+ */
+export function track(e: Omit<ActivityEvent, "ts" | "name">, dedupeMs = 0): void {
+  try {
+    after(() => logActivity(e, dedupeMs));
+  } catch {
+    void logActivity(e, dedupeMs); // fora de um pedido (scripts/testes)
   }
 }
 
