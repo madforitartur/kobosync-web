@@ -6,14 +6,14 @@
  *
  * A posição é guardada como PERCENTAGEM (ratio 0–1) além dos píxeis, porque os
  * píxeis mudam quando o utilizador altera o tamanho da letra ou roda o ecrã.
- * Fica no dispositivo/browser onde se lê (não sincroniza entre aparelhos).
+ * Sincroniza entre aparelhos (cloud-sync): posições e lista são fundidas livro a livro.
  */
 
 import { markChanged } from "./local-store";
 
 const POS_PREFIX = "kobosync:reading:";
 const LIST_KEY = "kobosync:reading-list";
-const MAX_LIST = 50;
+const MAX_LIST = 120; // inclui entradas removidas (marcas), para a remoção também se propagar entre aparelhos
 const MIN_RATIO_TO_LIST = 0.005; // só entra na lista depois de avançar um pouco
 export const FINISHED_RATIO = 0.98;
 export const READING_EVENT = "kobosync:reading-changed";
@@ -38,6 +38,8 @@ export type ReadingEntry = BookMeta & {
   ratio: number;
   updatedAt: number;
   finished: boolean;
+  /** removido da lista (a marca evita que outro aparelho o volte a trazer) */
+  removed?: boolean;
 };
 
 function readJSON<T>(key: string): T | null {
@@ -121,13 +123,40 @@ export function savePosition(
 /** Livros que o utilizador começou e ainda não terminou, do mais recente para o mais antigo. */
 export function getReadingList(): ReadingEntry[] {
   return readList()
-    .filter((e) => !e.finished)
+    .filter((e) => !e.finished && !e.removed)
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 /** Tira o livro da lista "Leitura" (a posição guardada mantém-se). */
 export function removeFromReadingList(bookId: string) {
-  writeJSON(LIST_KEY, readList().filter((e) => e.id !== bookId));
+  const now = Date.now();
+  writeJSON(LIST_KEY, readList().map((e) => (e.id === bookId ? { ...e, removed: true, updatedAt: now } : e)));
+  notify();
+}
+
+/** Junta duas listas "Leitura" (de aparelhos diferentes): por livro, ganha a entrada mais recente. */
+export function mergeReadingLists(a: ReadingEntry[], b: ReadingEntry[]): ReadingEntry[] {
+  const byId = new Map<string, ReadingEntry>();
+  for (const e of [...a, ...b]) {
+    if (!e || typeof e.id !== "string") continue;
+    const cur = byId.get(e.id);
+    if (!cur || (e.updatedAt ?? 0) > (cur.updatedAt ?? 0)) byId.set(e.id, e);
+  }
+  return [...byId.values()].sort((x, y) => y.updatedAt - x.updatedAt).slice(0, MAX_LIST);
+}
+
+/**
+ * Garante que um livro com leitura começada aparece em "Leitura" (por exemplo se os dados do livro
+ * só chegaram depois de ele ser aberto). Respeita a remoção feita pelo utilizador depois dessa leitura.
+ */
+export function ensureListed(bookId: string, meta: BookMeta) {
+  const pos = loadPosition(bookId);
+  if (!pos || pos.ratio === null || pos.ratio < MIN_RATIO_TO_LIST || pos.ratio >= FINISHED_RATIO) return;
+  const list = readList();
+  const cur = list.find((e) => e.id === bookId);
+  if (cur && (!cur.removed || cur.updatedAt >= pos.timestamp)) return;
+  const entry: ReadingEntry = { id: bookId, ...meta, ratio: pos.ratio, updatedAt: pos.timestamp || Date.now(), finished: false };
+  writeJSON(LIST_KEY, [entry, ...list.filter((e) => e.id !== bookId)].sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_LIST));
   notify();
 }
 

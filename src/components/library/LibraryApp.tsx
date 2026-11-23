@@ -43,6 +43,7 @@ import { useInstall } from "@/lib/pwa-install";
 import { Sidebar, type DesktopView } from "./Sidebar";
 import { StatusToast } from "./StatusToast";
 import { Toolbar, type ViewMode } from "./Toolbar";
+import { reportActivity } from "@/lib/report-activity";
 import { FormatSwitch, type Format } from "./FormatSwitch";
 import { PdfConvertDialog } from "@/components/pdf/PdfConvertDialog";
 
@@ -190,6 +191,7 @@ export function LibraryApp() {
     setStatus({ type: "info", message: was ? "A remover do offline…" : "A guardar para ler offline…" });
     try {
       await offline.toggle(book.id);
+      if (!was) reportActivity("offline_save", { bookId: book.id, title: book.title });
       setStatus({ type: "success", message: was ? "Removido do offline." : `“${cleanBookTitle(book.title)}” disponível sem ligação.` });
     } catch (e) {
       setStatus({ type: "error", message: e instanceof Error ? e.message : "Erro ao guardar offline." });

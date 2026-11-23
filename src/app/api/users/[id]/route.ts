@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_ID } from "@/lib/auth";
 import { requireAdmin } from "@/lib/admin-guard";
+import { track } from "@/lib/firebase/activity";
+import { currentUserId } from "@/lib/session";
 import { cleanName, deleteUser, getUser, updateUser, validPin } from "@/lib/firebase/users";
 
 export const runtime = "nodejs";
@@ -25,6 +27,7 @@ export async function PATCH(request: NextRequest, { params }: Ctx) {
   }
   try {
     await updateUser(id, patch);
+    track({ uid: await currentUserId(), type: "admin", detail: `${patch.pin ? "PIN alterado" : "Utilizador renomeado"}: ${patch.name ?? id}` });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Erro" }, { status: 400 });
@@ -37,6 +40,7 @@ export async function DELETE(_req: NextRequest, { params }: Ctx) {
   const { id } = await params;
   try {
     await deleteUser(id);
+    track({ uid: await currentUserId(), type: "admin", detail: `Utilizador removido: ${id}` });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "Erro" }, { status: 400 });

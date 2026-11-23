@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyShareToken } from "@/lib/auth";
 import { getBookById } from "@/lib/firebase/books";
+import { track } from "@/lib/firebase/activity";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   if (!book?.drive_file_id) return new NextResponse("Livro não encontrado.", { status: 404 });
   const buffer = await downloadFromDriveWithConfig(book.drive_file_id).catch(() => null);
   if (!buffer || buffer.byteLength < 100) return new NextResponse("Livro não disponível.", { status: 404 });
+  track({ uid: "convidado", type: "share_download", bookId: id, title: book.title ?? undefined, detail: "via link de partilha (sem login)" });
   const name = (book.title ?? "livro").replace(/^#?\d+[\s._\-]+/, "").replace(/_/g, " ").replace(/[\\/:*?"<>|]+/g, "-").replace(/\s{2,}/g, " ").trim() || "livro";
   return new NextResponse(buffer, {
     headers: {

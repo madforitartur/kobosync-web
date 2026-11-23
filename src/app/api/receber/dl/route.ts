@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/firebase/kobo-sessions";
-import { logActivity } from "@/lib/firebase/activity";
+import { track } from "@/lib/firebase/activity";
 import { loadEpubById } from "@/lib/book-file";
 
 export const runtime = "nodejs";
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const found = await loadEpubById(file.id);
   if (!found) return NextResponse.json({ error: "EPUB não disponível" }, { status: 404 });
   const { buffer } = found;
-  if (file.by) void logActivity({ uid: file.by, type: "kobo_download", bookId: file.id, title: file.title, detail: "descarregado no Kobo" }, 10 * 60_000);
+  if (file.by) track({ uid: file.by, type: "kobo_download", bookId: file.id, title: file.title, detail: "descarregado no Kobo" }, 10 * 60_000);
 
   // Em streaming: evita o limite de ~4,5 MB das respostas "completas" na Vercel.
   const bytes = new Uint8Array(buffer);

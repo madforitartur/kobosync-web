@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listBooksByIds } from "@/lib/firebase/books";
 import { addFiles, getSession, normalizeCode } from "@/lib/firebase/kobo-sessions";
-import { logActivity } from "@/lib/firebase/activity";
+import { track } from "@/lib/firebase/activity";
 import { currentUserId } from "@/lib/session";
 import { epubFilename } from "@/lib/book-file";
 
@@ -23,6 +23,6 @@ export async function POST(request: NextRequest) {
   const sendable = books.filter((b) => b.drive_file_id || b.epub_url);
   const res = await addFiles(code, sendable.map((b) => ({ id: b.id, title: b.title, filename: epubFilename(b.title), by: uid })));
   if (!res) return NextResponse.json({ error: "Código expirado" }, { status: 404 });
-  if (res.added > 0) void logActivity({ uid, type: "kobo_send", detail: `${res.added} livro(s) → Kobo ${code}: ${sendable.slice(0, 5).map((b) => b.title).join("; ")}${sendable.length > 5 ? "…" : ""}` });
+  if (res.added > 0) track({ uid, type: "kobo_send", detail: `${res.added} livro(s) → Kobo ${code}: ${sendable.slice(0, 5).map((b) => b.title).join("; ")}${sendable.length > 5 ? "…" : ""}` });
   return NextResponse.json({ ...res, sentIds: books.map((b) => b.id) });
 }

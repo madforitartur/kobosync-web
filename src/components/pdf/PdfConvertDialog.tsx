@@ -6,6 +6,7 @@ import { AlertTriangle, CheckCircle2, Download, FolderDown, HardDrive, Loader2, 
 import { Modal } from "@/components/library/Modal";
 import { downloadBlobs, saveBlobsToFolder, supportsFolderPicker, type NamedBlob } from "@/lib/blob-export";
 import { getBackend, writeLocal } from "@/lib/local-library";
+import { reportActivity } from "@/lib/report-activity";
 export type PdfEntry = { id: string; title: string; author: string | null };
 
 type Row = { pdf: PdfEntry; status: "espera" | "a converter" | "feito" | "erro"; pct: number; label: string; error?: string; blob?: Blob; name?: string; info?: string };
@@ -46,6 +47,7 @@ export function PdfConvertDialog({ open, onClose, touch, pdfs }: Props) {
         const res = await fetch(`/api/pdfs/${r.pdf.id}/file`);
         if (!res.ok) throw new Error("Não foi possível descarregar o PDF.");
         const out = await convertPdfToEpub(await res.arrayBuffer(), { title: r.pdf.title, author: r.pdf.author ?? "", language: lang, cover: true }, (d, t, label) => patch(r.pdf.id, { pct: Math.round((d / t) * 100), label }));
+        reportActivity("pdf_convert", { bookId: r.pdf.id, title: r.pdf.title, detail: `${out.chapters} capítulo(s)` });
         patch(r.pdf.id, {
           status: "feito", pct: 100, blob: out.blob,
           name: `${safe(r.pdf.author ? `${r.pdf.title} - ${r.pdf.author}` : r.pdf.title)}.epub`,

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_ID } from "@/lib/auth";
 import { currentUserId } from "@/lib/session";
+import { track } from "@/lib/firebase/activity";
 import { getUser, updateUser, validPin, verifyPin } from "@/lib/firebase/users";
 
 export const runtime = "nodejs";
@@ -15,5 +16,6 @@ export async function PATCH(request: NextRequest) {
   if (typeof body?.currentPin !== "string" || !verifyPin(body.currentPin, user.pinHash)) return NextResponse.json({ error: "PIN atual incorreto." }, { status: 401 });
   if (!validPin(body?.pin)) return NextResponse.json({ error: "O novo PIN deve ter entre 4 e 12 dígitos." }, { status: 400 });
   await updateUser(uid, { pin: body.pin });
+  track({ uid, type: "admin", detail: "Alterou o próprio PIN" });
   return NextResponse.json({ ok: true });
 }

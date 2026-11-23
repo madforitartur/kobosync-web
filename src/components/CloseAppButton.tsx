@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Power } from "lucide-react";
 
 /** Botão de fechar a app, com confirmação. As definições e o tema já ficam guardados, por isso reabre como estava. */
 export function CloseAppButton({ className = "" }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   function close() {
     setBlocked(false);
@@ -24,7 +27,7 @@ export function CloseAppButton({ className = "" }: { className?: string }) {
       >
         <Power size={17} />
       </button>
-      {open && (
+      {open && mounted && createPortal(
         <div className="fixed inset-0 z-[400] flex items-center justify-center bg-black/55 px-6" onClick={() => setOpen(false)}>
           <div role="alertdialog" aria-modal="true" aria-labelledby="kb-close-title" onClick={(e) => e.stopPropagation()}
             className="w-full max-w-sm rounded-2xl bg-background p-5 text-on-background shadow-2xl">
@@ -40,7 +43,8 @@ export function CloseAppButton({ className = "" }: { className?: string }) {
               <button onClick={close} className="rounded-lg bg-error px-4 py-2 text-sm font-bold text-on-error">Fechar aplicação</button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

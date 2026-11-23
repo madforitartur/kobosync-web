@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-guard";
+import { track } from "@/lib/firebase/activity";
+import { currentUserId } from "@/lib/session";
 import { getServerConfig } from "@/lib/env";
 import { getAllBooksCached, patchBooks, type BookPatch } from "@/lib/firebase/books";
 import { folderLabels } from "@/lib/firebase/drive-folders";
@@ -45,5 +47,6 @@ export async function POST(request: NextRequest) {
   } else return NextResponse.json({ error: "Ação inválida." }, { status: 400 });
 
   await patchBooks(patches);
+  track({ uid: await currentUserId(), type: "admin", detail: `Duplicados (${action}): ${patches.length} livro(s)` });
   return NextResponse.json({ changed: patches.length }, { headers: NO_STORE });
 }
