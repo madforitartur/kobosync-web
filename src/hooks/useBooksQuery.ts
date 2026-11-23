@@ -17,6 +17,7 @@ type Args = {
   finishedRatio: number;
   reloadKey: number;
   enabled: boolean;
+  format?: "epub" | "pdf";
 };
 
 function scopeOf(a: Args): { ids?: string[]; exclude?: string[]; empty: boolean } {
@@ -70,6 +71,7 @@ export function useBooksQuery(a: Args) {
           language: a.filters.language,
           page: a.page,
           limit: a.limit,
+          format: a.format === "pdf" ? "pdf" : undefined,
         };
 
         let res: Response;
@@ -102,7 +104,7 @@ export function useBooksQuery(a: Args) {
       window.clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [a.enabled, a.q, a.sort, a.filters.author, a.filters.series, a.filters.language, a.filters.status, statusKey, onlyKey, a.page, a.limit, a.reloadKey]);
+  }, [a.enabled, a.q, a.sort, a.filters.author, a.filters.series, a.filters.language, a.filters.status, statusKey, onlyKey, a.page, a.limit, a.reloadKey, a.format]);
 
   /** Todos os ids dos resultados atuais (para "selecionar todos os resultados"). */
   async function fetchAllIds(): Promise<string[]> {
@@ -113,7 +115,7 @@ export function useBooksQuery(a: Args) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         q: a.q.trim() || undefined, author: a.filters.author, series: a.filters.series,
-        language: a.filters.language, ids, exclude, idsOnly: true,
+        language: a.filters.language, ids, exclude, idsOnly: true, format: a.format === "pdf" ? "pdf" : undefined,
       }),
     });
     const data = await res.json();

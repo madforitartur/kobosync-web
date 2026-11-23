@@ -4,9 +4,10 @@ import { getAllBooksCached } from "@/lib/firebase/books";
 export const runtime = "nodejs";
 
 /** Quantos livros ainda não têm capa extraída (para o sync automático em segundo plano). */
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const all = await getAllBooksCached();
+    const fmt = new URL(request.url).searchParams.get("format") === "pdf" ? "pdf" : "epub";
+    const all = await getAllBooksCached(false, fmt);
     const pending = all.filter((b) => !b.cover_url && !b.cover_missing && b.drive_file_id).length;
     return NextResponse.json(
       { total: all.length, pending, withCover: all.filter((b) => b.cover_url).length, noCoverInEpub: all.filter((b) => b.cover_missing).length },

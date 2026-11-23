@@ -4,8 +4,9 @@ import { useCallback, useMemo } from "react";
 import { useStored } from "./useStored";
 
 /** Seleção de livros (para enviar ao Kobo): persistida e sincronizada entre dispositivos. */
-export function useSelection() {
-  const [list, setList] = useStored<string[]>("kobosync:selection", [], "selection");
+export function useSelection(kind: "epub" | "pdf" = "epub") {
+  // A seleção de PDFs é separada (e só local): serve para os converter em EPUB
+  const [list, setList] = useStored<string[]>(kind === "pdf" ? "kobosync:selection-pdf" : "kobosync:selection", [], kind === "pdf" ? undefined : "selection");
   const ids = useMemo(() => new Set(list), [list]);
 
   const toggle = useCallback(

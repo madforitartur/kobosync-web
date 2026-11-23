@@ -111,3 +111,19 @@ export async function storeCoverForBook(
     return null;
   }
 }
+
+/**
+ * Capa de um PDF: usa a miniatura que o Drive gera da 1.ª página, comprime-a e guarda-a no Firebase
+ * (coleção "covers"), para as páginas carregarem depressa sem voltar ao Drive.
+ * Lança erro se o Drive ainda não tem miniatura (volta a tentar-se mais tarde).
+ */
+export async function storePdfCover(driveFileId: string, bookId: string): Promise<{ url: string }> {
+  const { getDriveThumbnailLink, fetchDriveThumbnail } = await import("@/lib/google-drive");
+  const link = await getDriveThumbnailLink(driveFileId);
+  if (!link) throw new Error("O Drive ainda não gerou a miniatura deste PDF.");
+  const res = await fetchDriveThumbnail(link, 480);
+  if (!res.ok) throw new Error(`Miniatura indisponível (${res.status}).`);
+  const { buffer, mimeType } = await compressToJpeg(await res.arrayBuffer());
+  await saveCover(bookId, buffer, mimeType);
+  return { url: `/api/books/${bookId}/cover?v=${Date.now()}` };
+}

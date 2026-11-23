@@ -307,9 +307,19 @@ export async function openDriveStream(fileId: string): Promise<Response> {
 }
 
 /** Miniatura (primeira página) que o Drive gera para um ficheiro, em ~240px. */
-export async function fetchDriveThumbnail(url: string): Promise<Response> {
+export async function fetchDriveThumbnail(url: string, size = 320): Promise<Response> {
   const { getServerConfig } = await import("@/lib/env");
   const config = getServerConfig();
   const token = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
-  return fetch(url.replace(/=s\d+$/, "=s320"), { headers: { Authorization: `Bearer ${token}` } });
+  return fetch(url.replace(/=s\d+$/, `=s${size}`), { headers: { Authorization: `Bearer ${token}` } });
+}
+
+/** Ligação da miniatura (1.ª página) que o Drive gera para um ficheiro; null se ainda não existir. */
+export async function getDriveThumbnailLink(fileId: string): Promise<string | null> {
+  const { getServerConfig } = await import("@/lib/env");
+  const config = getServerConfig();
+  const token = await getAccessToken(config.googleClientEmail, config.googlePrivateKey);
+  const res = await fetch(`${DRIVE_API}/files/${encodeURIComponent(fileId)}?fields=thumbnailLink&supportsAllDrives=true`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error(`Drive ${res.status}`);
+  return ((await res.json()) as { thumbnailLink?: string }).thumbnailLink ?? null;
 }

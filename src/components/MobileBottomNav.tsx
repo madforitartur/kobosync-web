@@ -1,6 +1,6 @@
 "use client";
 
-import { BookMarked, BookOpen, Check, Compass, Usb } from "lucide-react";
+import { BookMarked, BookOpen, Check, Compass, FileOutput, Usb } from "lucide-react";
 
 export type Tab = "library" | "selected" | "explore" | "reading";
 
@@ -10,6 +10,8 @@ type MobileNavProps = {
   selectedCount: number;
   readingCount: number;
   onKobo: () => void;
+  /** biblioteca de PDFs: o último botão converte em EPUB */
+  pdf?: boolean;
 };
 
 export function MobileBottomNav({
@@ -18,6 +20,7 @@ export function MobileBottomNav({
   selectedCount,
   readingCount,
   onKobo,
+  pdf,
 }: MobileNavProps) {
   return (
     <nav
@@ -83,8 +86,8 @@ export function MobileBottomNav({
           className="flex min-w-0 flex-1 flex-col items-center gap-0.5 px-0.5 py-1.5 rounded-xl transition disabled:opacity-30"
           style={{ color: selectedCount > 0 ? "var(--color-primary)" : "var(--color-outline)" }}
         >
-          <Usb size={21} strokeWidth={1.5} />
-          <span className="text-[9px] font-bold tracking-wider uppercase">Kobo</span>
+          {pdf ? <FileOutput size={21} strokeWidth={1.5} /> : <Usb size={21} strokeWidth={1.5} />}
+          <span className="text-[9px] font-bold tracking-wider uppercase">{pdf ? "Converter" : "Kobo"}</span>
         </button>
 
       </div>

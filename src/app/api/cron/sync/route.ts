@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
   if (request.headers.get("authorization") !== `Bearer ${secret}`) return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
   try {
     const r = await syncLibrary();
-    return NextResponse.json({ ok: true, newBooks: r.newBooks, found: r.found });
+    return NextResponse.json({ ok: true, newBooks: r.newBooks, newPdfs: r.newPdfs, found: r.found });
   } catch (e) {
     return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : "Erro" }, { status: 500 });
   }

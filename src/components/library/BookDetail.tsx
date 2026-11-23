@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, Check, CheckCheck, CloudDownload, CloudOff, Download, FolderPlus, RotateCcw } from "lucide-react";
+import { BookOpen, Check, CheckCheck, CloudDownload, CloudOff, Download, FileOutput, FileText, FolderPlus, RotateCcw } from "lucide-react";
 import { BookCover } from "@/components/BookCover";
 import { Modal } from "./Modal";
 import { cleanBookTitle } from "@/lib/book-title";
@@ -26,11 +26,13 @@ type Props = {
   onToggleFinished: (b: Book) => void;
   onFilterAuthor: (a: string) => void;
   onFilterSeries: (s: string) => void;
+  pdf?: boolean;
+  onConvert?: (b: Book) => void;
 };
 
 const fmtSize = (n: number | null) => (n ? `${(n / 1024 / 1024).toFixed(n > 10 * 1024 * 1024 ? 0 : 1)} MB` : null);
 
-export function BookDetail({ book, touch, selected, status, progress, sentToKobo, offlineSaved, offlineSupported, onToggleOffline, collectionNames, onClose, onRead, onToggleSelect, onCollections, onToggleFinished, onFilterAuthor, onFilterSeries }: Props) {
+export function BookDetail({ book, touch, selected, status, progress, sentToKobo, offlineSaved, offlineSupported, onToggleOffline, collectionNames, onClose, onRead, onToggleSelect, onCollections, onToggleFinished, onFilterAuthor, onFilterSeries, pdf, onConvert }: Props) {
   const rows: Array<[string, React.ReactNode]> = book
     ? [
         ["Autor", book.author ? <button className="text-left font-semibold text-primary underline-offset-2 hover:underline" onClick={() => onFilterAuthor(book.author!)}>{book.author}</button> : null],
@@ -56,11 +58,24 @@ export function BookDetail({ book, touch, selected, status, progress, sentToKobo
               <h3 className="font-display-lg text-xl font-bold leading-tight text-primary">{cleanBookTitle(book.title)}</h3>
               <p className="mt-1 text-sm text-on-surface-variant">{book.author ?? "Autor desconhecido"}</p>
               <p className="mt-2 text-xs font-bold uppercase tracking-wider text-outline">
-                {status === "finished" ? "Lido" : status === "reading" ? `A ler · ${Math.round((progress ?? 0) * 100)}%` : "Por ler"}
+                {pdf ? "PDF" : status === "finished" ? "Lido" : status === "reading" ? `A ler · ${Math.round((progress ?? 0) * 100)}%` : "Por ler"}
               </p>
             </div>
           </div>
 
+          {pdf ? (
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button onClick={() => onConvert?.(book)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-on-primary">
+                <FileOutput size={18} /> Converter para EPUB
+              </button>
+              <a href={`/api/pdfs/${book.id}/file`} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 rounded-xl border border-outline-variant px-3 py-2.5 text-sm font-bold">
+                <FileText size={16} /> Abrir PDF
+              </a>
+              <button onClick={() => onToggleSelect(book)} className="flex items-center justify-center gap-2 rounded-xl border border-outline-variant px-3 py-2.5 text-sm font-bold">
+                <Check size={16} /> {selected ? "Na seleção" : "Selecionar"}
+              </button>
+            </div>
+          ) : (
           <div className="mt-5 grid grid-cols-2 gap-2">
             <button onClick={() => onRead(book)} className="col-span-2 flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 font-bold text-on-primary">
               <BookOpen size={18} /> {status === "reading" ? "Continuar a ler" : "Ler agora"}
@@ -85,6 +100,7 @@ export function BookDetail({ book, touch, selected, status, progress, sentToKobo
               <Download size={16} /> EPUB
             </a>
           </div>
+          )}
 
           {book.description && (
             <div className="mt-5">

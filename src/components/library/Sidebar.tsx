@@ -83,7 +83,7 @@ export function Sidebar({ view, activeCollectionId, onView, onOpenCollection, co
         <button className={tool} onClick={onToggleDark}>{darkMode ? <Sun size={16} /> : <Moon size={16} />} {darkMode ? "Modo claro" : "Modo escuro"}</button>
         {onInstall && <button className={tool} onClick={onInstall}><Download size={16} /> Instalar aplicação</button>}
         <a href="/offline" className={tool}><HardDrive size={16} /> Biblioteca offline</a>
-        <a href="/pdf" className={tool}><FileText size={16} /> Livros em PDF</a>
+        <Link href="/?formato=pdf" className={tool}><FileText size={16} /> Livros em PDF</Link>
         <a href="/converter" className={tool}><FileOutput size={16} /> Converter PDF em EPUB</a>
         <Link href="/definicoes" className={tool}><Settings size={16} /> Definições</Link>
         {isAdmin && <Link href="/definicoes/atividade" className={tool}><Activity size={16} /> Registo de atividade</Link>}

@@ -31,7 +31,7 @@ const needsCover = (b: Book) => !b.cover_url && !b.cover_missing && !!b.drive_fi
  * - `start()`: em segundo plano, percorre toda a biblioteca até não faltar nenhuma.
  * As capas novas chegam por `overrides`, sem recarregar a lista.
  */
-export function useCoverManager() {
+export function useCoverManager(format: "epub" | "pdf" = "epub") {
   const [state, setState] = useState<CoverState>({ running: false, done: 0, total: 0, failed: 0, error: null });
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const missing = useRef(new Set<string>()); // EPUB sem imagem de capa
@@ -44,7 +44,7 @@ export function useCoverManager() {
     const res = await fetch("/api/covers/sync-all", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, format }),
     });
     const data = (await res.json().catch(() => ({}))) as SyncResponse;
     if (!res.ok || data.error) throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -52,7 +52,7 @@ export function useCoverManager() {
     (data.missingIds ?? []).forEach((id) => missing.current.add(id));
     (data.failedIds ?? []).forEach((id) => failed.current.add(id));
     return data;
-  }, []);
+  }, [format]);
 
   /** Prioridade: capas dos livros visíveis. */
   const ensure = useCallback(async (books: Book[]) => {
@@ -89,7 +89,7 @@ export function useCoverManager() {
     setState({ running: true, done: 0, total: 0, failed: 0, error: null });
 
     try {
-      const st = await fetch("/api/covers/status", { cache: "no-store" }).then((r) => r.json());
+      const st = await fetch(`/api/covers/status?format=${format}`, { cache: "no-store" }).then((r) => r.json());
       const total: number = st.pending ?? 0;
       if (!total) { setState((s) => ({ ...s, running: false })); return; }
       setState((s) => ({ ...s, total }));
@@ -110,18 +110,18 @@ export function useCoverManager() {
     } finally {
       running.current = false;
     }
-  }, [call]);
+  }, [call, format]);
 
   // Arranque automático, uma vez por sessão: se faltarem capas, completa-as sozinho
   useEffect(() => {
     const t = window.setTimeout(() => {
-      fetch("/api/covers/status", { cache: "no-store" })
+      fetch(`/api/covers/status?format=${format}`, { cache: "no-store" })
         .then((r) => (r.ok ? r.json() : null))
         .then((st) => { if (st && st.pending > 0) start(); })
         .catch(() => {});
     }, 2500);
     return () => window.clearTimeout(t);
-  }, [start]);
+  }, [start, format]);
 
   return { state, overrides, ensure, start, stop };
 }

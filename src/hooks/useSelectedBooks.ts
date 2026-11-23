@@ -5,13 +5,13 @@ import type { Book } from "@/types/library";
 
 const CHUNK = 400; // o servidor aceita até 500 ids por pedido
 
-async function fetchByIds(ids: string[], signal?: AbortSignal): Promise<Book[]> {
+async function fetchByIds(ids: string[], format: string, signal?: AbortSignal): Promise<Book[]> {
   const out: Book[] = [];
   for (let i = 0; i < ids.length; i += CHUNK) {
     const res = await fetch("/api/books/selected", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: ids.slice(i, i + CHUNK) }),
+      body: JSON.stringify({ ids: ids.slice(i, i + CHUNK), format }),
       signal,
     });
     const data = await res.json();
@@ -22,7 +22,7 @@ async function fetchByIds(ids: string[], signal?: AbortSignal): Promise<Book[]> 
 }
 
 /** Dados completos dos livros selecionados (pela ordem da seleção). */
-export function useSelectedBooks(list: string[], enabled: boolean, reloadKey: number) {
+export function useSelectedBooks(list: string[], enabled: boolean, reloadKey: number, format: "epub" | "pdf" = "epub") {
   const [books, setBooks] = useState<Book[]>([]);
   const key = list.join(",");
 
@@ -31,7 +31,7 @@ export function useSelectedBooks(list: string[], enabled: boolean, reloadKey: nu
     if (list.length === 0) { setBooks([]); return; }
     const c = new AbortController();
     const t = window.setTimeout(() => {
-      fetchByIds(list, c.signal)
+      fetchByIds(list, format, c.signal)
         .then((found) => {
           const byId = new Map(found.map((b) => [b.id, b]));
           setBooks(list.map((id) => byId.get(id)).filter((b): b is Book => !!b));
@@ -40,7 +40,7 @@ export function useSelectedBooks(list: string[], enabled: boolean, reloadKey: nu
     }, 300);
     return () => { c.abort(); window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, enabled, reloadKey]);
+  }, [key, enabled, reloadKey, format]);
 
   return books;
 }

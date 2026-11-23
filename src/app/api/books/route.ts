@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { queryBooks, type BookQuery, type SortKey } from "@/lib/firebase/books";
+import { queryBooks, type BookQuery, type Format, type SortKey } from "@/lib/firebase/books";
 
 export const runtime = "nodejs";
 
@@ -19,6 +19,7 @@ type Params = {
   ids?: unknown;
   exclude?: unknown;
   idsOnly?: unknown;
+  format?: unknown;
 };
 
 const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
@@ -31,6 +32,7 @@ async function handle(p: Params) {
   const sort = SORTS.find((s) => s === p.sort);
 
   const query: BookQuery = {
+    format: (p.format === "pdf" ? "pdf" : "epub") as Format,
     q: str(p.q),
     sort,
     author: str(p.author),
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
     const sp = request.nextUrl.searchParams;
     return await handle({
       q: sp.get("q"), sort: sp.get("sort"), author: sp.get("author"), series: sp.get("series"),
-      language: sp.get("language"), page: sp.get("page"), limit: sp.get("limit"),
+      language: sp.get("language"), format: sp.get("format"), page: sp.get("page"), limit: sp.get("limit"),
     });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to load library" }, { status: 500 });

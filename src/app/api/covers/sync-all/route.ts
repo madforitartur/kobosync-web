@@ -14,7 +14,7 @@
  */
 import { NextResponse } from "next/server";
 import { listBooksWithoutCover, patchBooks, type BookPatch } from "@/lib/firebase/books";
-import { storeCoverForBook } from "@/lib/cover-extractor";
+import { storeCoverForBook, storePdfCover } from "@/lib/cover-extractor";
 import { downloadFromDriveWithConfig } from "@/lib/google-drive";
 
 export const runtime = "nodejs";
@@ -37,10 +37,11 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const skip = new Set<string>(Array.isArray(body?.skip) ? body.skip : []);
 
+    const fmt = body?.format === "pdf" ? "pdf" : "epub";
     const only = Array.isArray(body?.ids) ? new Set<string>(body.ids.slice(0, 100)) : null;
     const budget = Math.min(Number(body?.budgetMs) || TIME_BUDGET_MS, TIME_BUDGET_MS);
 
-    const pending = (await listBooksWithoutCover(undefined, true)).filter(
+    const pending = (await listBooksWithoutCover(undefined, true, fmt)).filter(
       (b) => !skip.has(b.id) && (!only || only.has(b.id)),
     );
 
@@ -51,11 +52,9 @@ export async function POST(request: Request) {
       await Promise.all(
         chunk.map(async (book) => {
           try {
-            const result = await storeCoverForBook(
-              book.drive_file_id!,
-              book.id,
-              (id) => downloadFromDriveWithConfig(id),
-            );
+            const result = fmt === "pdf"
+              ? await storePdfCover(book.drive_file_id!, book.id)
+              : await storeCoverForBook(book.drive_file_id!, book.id, (id) => downloadFromDriveWithConfig(id));
 
             if (!result) {
               patches.push({ id: book.id, cover_missing: true });
@@ -76,7 +75,7 @@ export async function POST(request: Request) {
       );
 
       // 1 escrita por grupo (agrupada por chunk) em vez de 1 por livro
-      await patchBooks(patches);
+      await patchBooks(patches, fmt);
     }
 
     const remaining = Math.max(0, pending.length - success - missing - failedIds.length);
